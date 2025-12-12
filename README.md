@@ -99,6 +99,45 @@ src/
 - **카드/리스트 모드**: 사용자 선호에 따른 표시 방식 선택
 - **로딩 애니메이션**: 검색 중 사용자 경험 향상
 
+## 🚀 Vercel 배포 가이드
+
+이 프로젝트는 Vercel에 배포하기에 최적화되어 있습니다.
+
+### 배포 방법
+
+1. **Vercel 계정 준비**
+   - [Vercel](https://vercel.com)에 가입하거나 로그인
+
+2. **GitHub 저장소 연결**
+   - Vercel 대시보드에서 "New Project" 클릭
+   - GitHub 저장소 `lingger-lab/youtube-insigt` 선택
+   - Import 클릭
+
+3. **환경 변수 설정**
+   - 프로젝트 설정에서 "Environment Variables" 섹션으로 이동
+   - 다음 환경 변수 추가:
+     ```
+     NEXT_PUBLIC_YT_API_KEY=your_youtube_api_key_here
+     ```
+   - Google Cloud Console에서 발급받은 YouTube API 키를 입력
+
+4. **배포 실행**
+   - "Deploy" 버튼 클릭
+   - Vercel이 자동으로 빌드 및 배포 진행
+   - 배포 완료 후 제공되는 URL로 접속 가능
+
+### 배포 후 확인사항
+
+- ✅ 환경 변수가 올바르게 설정되었는지 확인
+- ✅ 빌드가 성공적으로 완료되었는지 확인
+- ✅ YouTube API 키가 유효한지 확인 (할당량 확인)
+
+### 주의사항
+
+- YouTube Data API v3는 일일 할당량이 있습니다 (기본 10,000 units/day)
+- API 키는 공개되어도 되지만, 할당량 제한을 위해 보안을 권장합니다
+- 필요시 Google Cloud Console에서 API 키 제한 설정 가능
+
 ## 📝 라이선스
 
 MIT License
