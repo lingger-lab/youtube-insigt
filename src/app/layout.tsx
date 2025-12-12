@@ -28,11 +28,20 @@ export const metadata: Metadata = {
     locale: "ko_KR",
     siteName: "Youtube InSigt",
     url: siteUrl,
+    images: [
+      {
+        url: `${siteUrl}/opengraph-image`,
+        width: 1200,
+        height: 630,
+        alt: "Youtube InSigt - YouTube 영상 분석 도구",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Youtube InSigt - YouTube 영상 분석 도구",
     description: "YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독자수 기반의 Viral Score(떡상지수)를 분석하는 통합 분석 웹앱",
+    images: [`${siteUrl}/opengraph-image`],
   },
   alternates: {
     canonical: '/',
