@@ -12,7 +12,11 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// 카카오톡 링크 미리보기 캐시를 고려한 메타데이터 설정
+const siteUrl = 'https://youtube-insigt.vercel.app';
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "Youtube InSigt - YouTube 영상 분석 도구",
   description: "YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독자수 기반의 Viral Score(떡상지수)를 분석하는 통합 분석 웹앱",
   keywords: ["YouTube", "영상 분석", "떡상지수", "Viral Score", "YouTube API", "콘텐츠 분석"],
@@ -23,11 +27,15 @@ export const metadata: Metadata = {
     type: "website",
     locale: "ko_KR",
     siteName: "Youtube InSigt",
+    url: siteUrl,
   },
   twitter: {
     card: "summary_large_image",
     title: "Youtube InSigt - YouTube 영상 분석 도구",
     description: "YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독자수 기반의 Viral Score(떡상지수)를 분석하는 통합 분석 웹앱",
+  },
+  alternates: {
+    canonical: '/',
   },
 };
 
