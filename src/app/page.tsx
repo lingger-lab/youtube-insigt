@@ -82,7 +82,7 @@ export default function Home() {
     setVideos([]); // 새로운 검색 시작 시 이전 결과 완전히 초기화
     
     try {
-      const results = await searchYouTube(searchTerm, filters, 200);
+      const { videos: results } = await searchYouTube(searchTerm, filters, 200);
       setVideos(results);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed');

@@ -39,7 +39,7 @@ YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독�
    
    `.env.local` 파일에서 YouTube API 키를 설정하세요:
    ```
-   NEXT_PUBLIC_YT_API_KEY=your_youtube_api_key_here
+   YT_API_KEY=your_youtube_api_key_here
    ```
 
 4. **개발 서버 실행**
@@ -63,19 +63,33 @@ YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독�
 
 ```
 src/
+  types/
+    youtube.ts             # 서버·클라이언트 공유 타입의 단일 출처
+  server/                  # 서버 전용. API 키는 이 경계 밖으로 나가지 않는다
+    youtube/
+      client.ts            # fetch 래퍼 (타임아웃·재시도·할당량 집계)
+      errors.ts            # 실패 분류 (할당량 소진을 별도로 드러냄)
+      search.ts            # 검색·통계 수집
   app/
+    api/
+      search/route.ts      # 검색 프록시 (POST)
     components/
-      Filters.tsx           # 검색 필터 컴포넌트
-      SearchInput.tsx       # 검색 입력 컴포넌트
+      Header.tsx           # 상단 바
+      Sidebar.tsx          # 영상 유형 필터 사이드바
+      Filters.tsx          # 검색 필터 컴포넌트
+      SearchInput.tsx      # 검색 입력 컴포넌트
       SortBar.tsx          # 정렬 바 컴포넌트
       DisplayModeToggle.tsx # 표시 모드 토글
       VideoCard.tsx        # 비디오 카드 컴포넌트
     utils/
-      youtubeApi.ts        # YouTube API 유틸리티
-      helpers.ts           # 도우미 함수들
+      youtubeApi.ts        # 클라이언트: /api/search 호출 + 타입 재수출
+      videoUtils.ts        # 길이 파싱 / Shorts 판별
+      helpers.ts           # 표시용 포맷터
     globals.css            # 글로벌 스타일
-    page.tsx              # 메인 페이지
+    page.tsx               # 메인 페이지
 ```
+
+테스트는 소스 옆에 둡니다(`helpers.ts` ↔ `helpers.test.ts`).
 
 ## 🎯 사용자 흐름
 
@@ -117,7 +131,7 @@ src/
    - 프로젝트 설정에서 "Environment Variables" 섹션으로 이동
    - 다음 환경 변수 추가:
      ```
-     NEXT_PUBLIC_YT_API_KEY=your_youtube_api_key_here
+     YT_API_KEY=your_youtube_api_key_here
      ```
    - Google Cloud Console에서 발급받은 YouTube API 키를 입력
 
@@ -134,9 +148,23 @@ src/
 
 ### 주의사항
 
-- YouTube Data API v3는 일일 할당량이 있습니다 (기본 10,000 units/day)
-- API 키는 공개되어도 되지만, 할당량 제한을 위해 보안을 권장합니다
-- 필요시 Google Cloud Console에서 API 키 제한 설정 가능
+**API 키는 절대 클라이언트에 노출하면 안 됩니다.** 이 앱의 모든 YouTube 호출은
+서버 라우트(`/api/search`)를 거치며, 키는 `YT_API_KEY`(서버 전용)로만 읽습니다.
+`NEXT_PUBLIC_` 접두사가 붙은 환경변수는 클라이언트 번들에 평문으로 박히므로
+API 키에 절대 사용하지 마십시오.
+
+**할당량이 이 앱의 실질적 상한입니다.** 기본 10,000 units/day이고, 호출 단가는
+search.list 100 · videos.list 1 · channels.list 1 units입니다. 따라서:
+
+| 검색 깊이 | 소비 할당량 | 하루 가능 횟수 |
+|---|---|---|
+| 50개 | 102 units | 약 98회 |
+| 100개 | 204 units | 약 49회 |
+| 200개 (Deep) | 408 units | **약 24회** |
+
+- 할당량은 태평양 시간 자정(한국 시간 오후 4~5시경)에 초기화됩니다
+- 소진 시 앱은 조용히 빈 결과를 보여주지 않고 명시적으로 알립니다
+- Google Cloud Console에서 API 키에 HTTP 리퍼러/IP 제한을 거는 것을 권장합니다
 
 ## 📝 라이선스
 
