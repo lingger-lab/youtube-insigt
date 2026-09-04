@@ -1,30 +1,32 @@
-import { VideoData } from './youtubeApi';
+import type { VideoData } from './youtubeApi';
 
 export type VideoType = 'shorts' | 'long';
 
 export function getVideoDurationInSeconds(duration: string): number {
-  // YouTube API returns duration in ISO 8601 format (PT#M#S or PT#H#M#S)
+  // YouTube API returns duration in ISO 8601 format (P#DT#H#M#S)
   // Example: PT4M13S = 4 minutes 13 seconds = 253 seconds
   // Example: PT1H30M = 1 hour 30 minutes = 5400 seconds
   // Example: PT59S = 59 seconds
-  
+  // Example: P1DT2H = 1 day 2 hours = 93600 seconds (24시간 넘는 라이브 아카이브 등)
+
   if (!duration || duration === 'PT0S') {
     return 0;
   }
-  
-  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+
+  const match = duration.match(/^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/);
   if (!match) {
     return 0;
   }
-  
-  const [, hours, minutes, seconds] = match;
-  
+
+  const [, days, hours, minutes, seconds] = match;
+
+  const daysInSeconds = days ? parseInt(days) * 86400 : 0;
   const hoursInSeconds = hours ? parseInt(hours) * 3600 : 0;
   const minutesInSeconds = minutes ? parseInt(minutes) * 60 : 0;
   const secondsValue = seconds ? parseInt(seconds) : 0;
-  
-  const totalSeconds = hoursInSeconds + minutesInSeconds + secondsValue;
-  
+
+  const totalSeconds = daysInSeconds + hoursInSeconds + minutesInSeconds + secondsValue;
+
   return totalSeconds;
 }
 

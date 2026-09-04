@@ -34,25 +34,25 @@ export function formatViralScore(score: number): string {
 }
 
 export function formatPublishedDate(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffTime = Math.abs(now.getTime() - date.getTime());
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  
-  if (diffDays === 1) {
-    return '1일 전';
-  } else if (diffDays < 7) {
-    return `${diffDays}일 전`;
-  } else if (diffDays < 30) {
-    const weeks = Math.floor(diffDays / 7);
-    return `${weeks}주 전`;
-  } else if (diffDays < 365) {
-    const months = Math.floor(diffDays / 30);
-    return `${months}개월 전`;
-  } else {
-    const years = Math.floor(diffDays / 365);
-    return `${years}년 전`;
-  }
+  // 경과 시간은 내림해야 한다. 올림하면 "1일 하고 1밀리초 전"이 "2일 전"이 되어
+  // 모든 날짜가 하루씩 부풀려진다.
+  const diffMs = Date.now() - new Date(dateString).getTime();
+
+  // 미래 시각(시계 오차/타임존 오류)은 과거로 뒤집지 않고 '방금 전'으로 처리한다.
+  if (Number.isNaN(diffMs) || diffMs < 0) return '방금 전';
+
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return '방금 전';
+  if (minutes < 60) return `${minutes}분 전`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}시간 전`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}일 전`;
+  if (days < 30) return `${Math.floor(days / 7)}주 전`;
+  if (days < 365) return `${Math.floor(days / 30)}개월 전`;
+  return `${Math.floor(days / 365)}년 전`;
 }
 
 export function truncateText(text: string, maxLength: number): string {

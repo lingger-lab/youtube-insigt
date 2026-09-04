@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "test:coverage": "node --test --experimental-test-coverage \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@vercel/og": "^0.8.5",
