@@ -139,13 +139,13 @@ export default function VideoCard({ video, displayMode }: VideoCardProps) {
     return (
       <div 
         onClick={handleVideoClick}
-        className="flex gap-4 p-4 bg-gray-800 rounded-lg hover:bg-gray-700 cursor-pointer transition-colors"
+        className="flex flex-col sm:flex-row gap-4 p-4 bg-gray-800 rounded-lg hover:bg-gray-700 cursor-pointer transition-colors"
       >
-        <div className="relative flex-shrink-0">
+        <div className="relative shrink-0">
           <img
             src={video.thumbnailUrl}
             alt={video.title}
-            className="w-48 h-27 object-cover rounded-md"
+            className="w-full sm:w-48 aspect-video object-cover rounded-md"
           />
           {/* Duration Badge */}
           <div className="absolute bottom-2 right-2 bg-black bg-opacity-80 text-white text-xs px-2 py-1 rounded">

@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import { VideoData, SearchFilters, searchYouTube } from './utils/youtubeApi';
 import { filterVideosByType, addVideoTypeToData } from './utils/videoUtils';
 import Header from './components/Header';
-import Sidebar from './components/Sidebar';
+import Sidebar, { MobileNavDrawer, type VideoFilter } from './components/Sidebar';
 import SearchInput from './components/SearchInput';
 import Filters from './components/Filters';
 import SortBar from './components/SortBar';
@@ -14,7 +14,6 @@ import VideoCard from './components/VideoCard';
 type SortBy = 'viewCount' | 'subscriberCount' | 'viralScore' | 'publishedAt';
 type SortOrder = 'asc' | 'desc';
 type DisplayMode = 'grid' | 'list';
-type VideoFilter = 'home' | 'shorts' | 'long';
 
 export default function Home() {
   const [videos, setVideos] = useState<VideoData[]>([]);
@@ -28,7 +27,10 @@ export default function Home() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [displayMode, setDisplayMode] = useState<DisplayMode>('grid');
   const [videoFilter, setVideoFilter] = useState<VideoFilter>('home');
+  // 데스크톱 레일의 접힘과 모바일 드로어의 열림은 서로 다른 상태다.
+  // 하나로 겸직시키면 뷰포트를 넘나들 때 화면이 상태와 어긋난다.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Filter videos based on selected type (home/shorts/long)
@@ -123,27 +125,39 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       {/* Header */}
-      <Header onMenuToggle={handleSidebarToggle} onLogoClick={handleLogoClick} />
+      <Header
+        onMobileMenuOpen={() => setMobileNavOpen(true)}
+        isMobileMenuOpen={mobileNavOpen}
+        onSidebarCollapseToggle={handleSidebarToggle}
+        isSidebarCollapsed={sidebarCollapsed}
+        onLogoClick={handleLogoClick}
+      />
 
-      {/* Sidebar */}
-      <Sidebar 
+      {/* Sidebar: 데스크톱 고정 레일 + 모바일 드로어 */}
+      <Sidebar
         activeFilter={videoFilter}
         onFilterChange={handleVideoFilterChange}
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={handleSidebarToggle}
       />
+      <MobileNavDrawer
+        activeFilter={videoFilter}
+        onFilterChange={handleVideoFilterChange}
+        isOpen={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+      />
 
-      {/* Main Content */}
-      <main className={`pt-16 transition-all duration-300 ${
-        sidebarCollapsed ? 'ml-16' : 'ml-64'
+      {/* Main Content — 모바일에는 고정 레일이 없으므로 마진도 없다 */}
+      <main className={`pt-16 transition-all duration-200 motion-reduce:transition-none ml-0 ${
+        sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'
       }`}>
-        <div className="container mx-auto px-6 py-8">
+        <div className="container mx-auto px-4 md:px-6 py-6 md:py-8">
           
           {/* Search Section - Only show if no search has been made yet */}
           {!searchTerm && (
             <div className="max-w-4xl mx-auto text-center mb-12">
               <div className="mb-8">
-                <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">
+                <h1 className="text-3xl sm:text-5xl font-bold mb-4 bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">
                   YouTube Insight
                 </h1>
                 <p className="text-xl text-gray-400">
