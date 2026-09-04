@@ -31,7 +31,6 @@ function makeVideo(id: string, multiple: number, overrides: Partial<VideoData> =
       hiddenSubscriberCount: false,
       videoCount: 100,
       totalViewCount: averageViews * 100,
-      averageViews,
     },
     ...overrides,
   };
@@ -70,8 +69,9 @@ describe('selectCohort', () => {
 
   test('성과배수를 계산할 수 없는 항목은 제외한다', () => {
     const measurable = makeSet(4);
+    // 영상이 1편뿐인 채널 — 비교할 나머지가 없어 성과배수를 낼 수 없다
     const unmeasurable = withMetrics(
-      [makeVideo('x', 1, { channel: { ...makeVideo('x', 1).channel, averageViews: null } })],
+      [makeVideo('x', 1, { channel: { ...makeVideo('x', 1).channel, videoCount: 1 } })],
       NOW,
     );
     const { top, bottom } = selectCohort([...measurable, ...unmeasurable], 10);

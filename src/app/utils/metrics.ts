@@ -25,13 +25,37 @@ function ratio(numerator: number | null, denominator: number | null): number | n
   return numerator / denominator;
 }
 
+/**
+ * 이 영상을 **뺀** 나머지 영상들의 평균 조회수.
+ *
+ * 채널 평균(총조회수 ÷ 총영상수)을 그대로 분모로 쓰면 안 된다. 그 평균에는
+ * 비교 대상인 영상 자신이 들어 있어서, 영상 수가 적은 채널일수록 자기 자신이
+ * 평균을 끌어올려 배수가 눌린다.
+ *
+ * 영상 5편 채널에서 나머지 대비 실제 20배인 영상이 4.17배로 나왔고(79% 과소평가),
+ * 측정값이 채널 영상 수 N을 구조적으로 넘지 못했다. 이 도구가 찾으려는 것이
+ * "작은 채널이 크게 터뜨린 영상"이라, 편향이 가장 중요한 지점에서 가장 컸다.
+ *
+ * 비교할 나머지가 없거나(1편뿐) 채널 총계가 이 영상보다 작으면(집계 불일치)
+ * 추정하지 않고 null을 낸다.
+ */
+export function peerAverageViews(video: VideoData): number | null {
+  const { totalViewCount, videoCount } = video.channel;
+  if (totalViewCount === null || videoCount === null || videoCount <= 1) return null;
+
+  const peerViews = totalViewCount - video.viewCount;
+  if (peerViews <= 0) return null;
+
+  return peerViews / (videoCount - 1);
+}
+
 export function computeMetrics(video: VideoData, now: number = Date.now()): VideoMetrics {
   const days = daysSincePublish(video.publishedAt, now);
 
   return {
-    // 주지표: 이 채널이 평소 받는 조회수 대비 몇 배인가.
+    // 주지표: 같은 채널의 **다른** 영상들이 평소 받는 조회수 대비 몇 배인가.
     // 구독자수와 달리 반올림도 없고 비공개로 사라지지도 않는다.
-    performanceMultiple: ratio(video.viewCount, video.channel.averageViews),
+    performanceMultiple: ratio(video.viewCount, peerAverageViews(video)),
 
     // 채널 평균은 영상들의 '누적' 조회수 평균이라 신작에 불리하다.
     // 그 편향을 보정할 짝으로 하루당 조회수를 함께 둔다.

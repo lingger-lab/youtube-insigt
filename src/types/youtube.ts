@@ -22,12 +22,12 @@ export interface SearchFilters {
 export type SearchDepth = 50 | 100 | 200;
 
 /**
- * 채널 통계 스냅샷.
+ * 채널 통계 스냅샷. API가 준 값만 담는다.
  *
  * subscriberCount는 두 가지 이유로 지표의 분모로 쓰기 나쁘다.
  * 1. 채널이 숨기면 아예 오지 않는다 (hiddenSubscriberCount)
  * 2. 1,000명을 넘으면 유효숫자 3자리로 반올림된다 (123,456 -> 123,000)
- * 그래서 averageViews(총조회수 ÷ 총영상수)를 주 기준선으로 쓴다.
+ * 그래서 총조회수·총영상수로 기준선을 세운다 (metrics.peerAverageViews).
  */
 export interface ChannelSnapshot {
   channelId: string;
@@ -36,8 +36,6 @@ export interface ChannelSnapshot {
   hiddenSubscriberCount: boolean;
   videoCount: number | null;
   totalViewCount: number | null;
-  /** 총조회수 ÷ 총영상수. 둘 중 하나라도 없으면 null. */
-  averageViews: number | null;
 }
 
 /** API가 준 사실만. 파생 지표는 여기 없다. */
@@ -69,7 +67,7 @@ export interface VideoData {
  * VideoData에서 계산되는 지표. 저장하지 않고 표시·정렬 직전에 만든다.
  */
 export interface VideoMetrics {
-  /** 조회수 ÷ 채널 평균 조회수. "이 채널 평소 대비 몇 배" — 주지표. */
+  /** 조회수 ÷ 같은 채널의 나머지 영상 평균. "평소 대비 몇 배" — 주지표. */
   performanceMultiple: number | null;
   /** 업로드 후 하루당 조회수. 오래된 영상의 상위 독식을 교정한다. */
   viewsPerDay: number;

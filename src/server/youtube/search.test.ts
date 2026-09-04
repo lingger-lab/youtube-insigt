@@ -204,7 +204,8 @@ describe('searchYouTube — 필드 매핑', () => {
   test('채널 평균 조회수를 계산해 담는다', async () => {
     installFetch({ totalVideos: 1, channelCount: 1 });
     const { videos } = await searchYouTube('테스트', FILTERS, 50);
-    assert.equal(videos[0].channel.averageViews, 10_000); // 1,000,000 / 100
+    assert.equal(videos[0].channel.totalViewCount, 1_000_000);
+    assert.equal(videos[0].channel.videoCount, 100);
     assert.equal(videos[0].channel.subscriberCount, 50_000);
   });
 
@@ -213,8 +214,8 @@ describe('searchYouTube — 필드 매핑', () => {
     const { videos } = await searchYouTube('테스트', FILTERS, 50);
     assert.equal(videos[0].channel.subscriberCount, null);
     assert.equal(videos[0].channel.hiddenSubscriberCount, true);
-    // 숨겨도 채널 평균은 살아 있어 성과배수는 계산 가능하다
-    assert.equal(videos[0].channel.averageViews, 10_000);
+    // 숨겨도 총조회수·총영상수는 살아 있어 성과배수는 계산 가능하다
+    assert.equal(videos[0].channel.totalViewCount, 1_000_000);
   });
 
   test('검색이 돌려준 순서(관련도)를 유지한다', async () => {

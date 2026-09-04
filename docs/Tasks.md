@@ -15,7 +15,8 @@ Build a full Next.js 14+ App Router project implementing **YouTube Native + High
    - videoDuration: any, short, medium, long
 3. Deep Search (max 200 results).
 4. Fetch video statistics & channel subscribers.
-5. Compute 성과배수 = viewCount / (channel.viewCount / channel.videoCount). 계산 불가는 null.
+5. Compute 성과배수 = viewCount / ((channel.viewCount - viewCount) / (channel.videoCount - 1)).
+   분모에서 그 영상 자신을 빼야 한다. 계산 불가는 null.
 6. Provide sorting (성과배수, 조회수, 일평균, 좋아요율, 구독자수, 최신순) + asc/desc toggle.
 7. Display results in list/card mode.
 8. Highlight 성과배수 2배 이상 (red gradient + flame).

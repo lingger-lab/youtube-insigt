@@ -13,7 +13,6 @@ function makeChannel(overrides: Partial<ChannelSnapshot> = {}): ChannelSnapshot 
     hiddenSubscriberCount: false,
     videoCount: 200,
     totalViewCount: 20_000_000,
-    averageViews: 100_000,
     ...overrides,
   };
 }
@@ -57,25 +56,63 @@ describe('daysSincePublish', () => {
 });
 
 describe('performanceMultiple (주지표)', () => {
-  test('채널 평균 조회수 대비 배수를 낸다', () => {
+  test('채널의 나머지 영상 평균 대비 배수를 낸다', () => {
+    // 채널 200편, 총 2,000만 조회. 이 영상이 50만이면
+    // 나머지 199편 평균 = (2,000만 - 50만) / 199 = 97,989
     const m = computeMetrics(makeVideo({ viewCount: 500_000 }), NOW);
-    assert.equal(m.performanceMultiple, 5); // 500,000 / 100,000
+    assert.equal(Math.round(m.performanceMultiple! * 100) / 100, 5.1);
   });
 
-  test('채널 평균을 모르면 null이다 (0으로 메우지 않는다)', () => {
-    const m = computeMetrics(makeVideo({ channel: makeChannel({ averageViews: null }) }), NOW);
-    assert.equal(m.performanceMultiple, null);
+  // 분모에 그 영상 자신이 섞여 있으면, 영상 수가 적은 채널일수록 자기 자신이
+  // 평균을 끌어올려 배수가 눌린다. 영상 5편 채널에서 실제 20배 터진 영상이
+  // 4.17배로 나왔다. 측정값이 채널 영상 수 N을 구조적으로 넘지 못한다.
+  // 이 도구의 목적이 "작은 채널이 크게 터뜨린 영상"이라 편향이 정확히
+  // 가장 중요한 지점에서 가장 크다.
+  test('영상 수가 적은 채널에서 배수가 눌리지 않는다', () => {
+    const channel = makeChannel({
+      videoCount: 5,
+      totalViewCount: 1_000_000 + 4 * 50_000, // 이 영상 100만 + 나머지 4편 각 5만
+    });
+    const m = computeMetrics(makeVideo({ viewCount: 1_000_000, channel }), NOW);
+    // 나머지 4편 평균 5만 대비 20배
+    assert.equal(m.performanceMultiple, 20);
+    assert.notEqual(Math.round(m.performanceMultiple! * 100) / 100, 4.17);
+  });
+
+  test('배수에 채널 영상 수라는 상한이 없다', () => {
+    const channel = makeChannel({
+      videoCount: 3,
+      totalViewCount: 1_000_000 + 2 * 1_000,
+    });
+    const m = computeMetrics(makeVideo({ viewCount: 1_000_000, channel }), NOW);
+    assert.ok(m.performanceMultiple! > 3, `영상 3개 채널인데 ${m.performanceMultiple}배로 막혔다`);
+    assert.equal(m.performanceMultiple, 1000); // 나머지 평균 1,000 대비
+  });
+
+  test('영상이 1편뿐인 채널은 비교 대상이 없어 null이다', () => {
+    const channel = makeChannel({ videoCount: 1, totalViewCount: 500_000 });
+    assert.equal(computeMetrics(makeVideo({ viewCount: 500_000, channel }), NOW).performanceMultiple, null);
+  });
+
+  test('채널 총조회수가 이 영상보다 적으면(데이터 불일치) null이다', () => {
+    const channel = makeChannel({ videoCount: 10, totalViewCount: 100_000 });
+    assert.equal(computeMetrics(makeVideo({ viewCount: 500_000, channel }), NOW).performanceMultiple, null);
+  });
+
+  test('채널 통계를 모르면 null이다 (0으로 메우지 않는다)', () => {
+    const channel = makeChannel({ totalViewCount: null, videoCount: null });
+    assert.equal(computeMetrics(makeVideo({ channel }), NOW).performanceMultiple, null);
   });
 
   test('영상이 0개인 채널은 null이다 (0으로 나누지 않는다)', () => {
-    const channel = makeChannel({ videoCount: 0, averageViews: null });
+    const channel = makeChannel({ videoCount: 0 });
     assert.equal(computeMetrics(makeVideo({ channel }), NOW).performanceMultiple, null);
   });
 
   test('구독자를 숨긴 채널도 성과배수는 계산된다', () => {
     const channel = makeChannel({ subscriberCount: null, hiddenSubscriberCount: true });
     const m = computeMetrics(makeVideo({ channel }), NOW);
-    assert.equal(m.performanceMultiple, 5);
+    assert.ok(m.performanceMultiple !== null && m.performanceMultiple > 0);
   });
 });
 
@@ -129,7 +166,7 @@ describe('참여율', () => {
     assert.equal(m.likeRate, 0);
   });
 
-  test('조회수 0이면 null이다', () => {
+  test('조회수 0이면 참여율은 null, 성과배수는 0이다', () => {
     const m = computeMetrics(makeVideo({ viewCount: 0 }), NOW);
     assert.equal(m.likeRate, null);
     assert.equal(m.performanceMultiple, 0);

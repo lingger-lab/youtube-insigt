@@ -137,18 +137,12 @@ async function fetchChannelSnapshots(
       return (payload.items ?? []).map((item): ChannelSnapshot => {
         const hidden = item.statistics?.hiddenSubscriberCount === true;
         const subscriberCount = hidden ? null : toCount(item.statistics?.subscriberCount);
-        const videoCount = toCount(item.statistics?.videoCount);
-        const totalViewCount = toCount(item.statistics?.viewCount);
         return {
           channelId: item.id,
           subscriberCount,
           hiddenSubscriberCount: hidden,
-          videoCount,
-          totalViewCount,
-          averageViews:
-            totalViewCount !== null && videoCount !== null && videoCount > 0
-              ? totalViewCount / videoCount
-              : null,
+          videoCount: toCount(item.statistics?.videoCount),
+          totalViewCount: toCount(item.statistics?.viewCount),
         };
       });
     }),
@@ -165,7 +159,6 @@ function unknownChannel(channelId: string): ChannelSnapshot {
     hiddenSubscriberCount: false,
     videoCount: null,
     totalViewCount: null,
-    averageViews: null,
   };
 }
 

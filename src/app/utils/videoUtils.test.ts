@@ -33,7 +33,6 @@ function makeVideo(overrides: Partial<VideoData> = {}): VideoData {
       hiddenSubscriberCount: false,
       videoCount: 10,
       totalViewCount: 10_000,
-      averageViews: 1000,
     },
     ...overrides,
   };
