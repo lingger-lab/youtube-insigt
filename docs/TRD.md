@@ -1,10 +1,12 @@
 # TRD — 기술 사양서 (Technical Requirements Document)
 
 ## 권장 스택
-- Framework: Next.js 14+ (App Router)
+- Framework: Next.js 16 (App Router, Turbopack)
 - Language: TypeScript
 - Styling: Tailwind CSS
-- Data Fetching: Fetch API / React Query
+- Data Fetching: 서버 Route Handler 경유 (클라이언트는 API 키를 모른다)
+- 경계 검증: zod
+- 테스트: Node 내장 test runner (node --test, 타입 스트리핑)
 - State Management: React Hooks
 - Env 관리: .env.local
 - 배포 환경: Vercel / Netlify
@@ -31,15 +33,35 @@ next.config.js
 package.json
 
 ## API 설계
-- searchYouTube(term, filters)
-- getVideoDetails(ids)
-- getChannelStats(channelIds)
-- calcViralScore(viewCount, subscriberCount)
+
+### 서버 (src/server/youtube/)
+- `searchYouTube(term, filters, maxResults)` — search.list로 ID 수집(순차) →
+  videos.list 50개씩 병렬 → 고유 채널만 channels.list 50개씩 병렬
+- 모든 외부 호출: 8초 타임아웃 · 429/5xx/타임아웃만 최대 2회 재시도(지수 백오프+지터)
+- 할당량 소진은 QUOTA_EXCEEDED로 분리해 표면화
+
+### 클라이언트 (src/app/utils/)
+- `POST /api/search` 호출만 담당
+- `computeMetrics(video)` — 파생 지표를 만드는 유일한 곳. VideoData에 저장하지 않는다
+- `estimateQuota(depth)` — 검색 깊이별 소비량
+
+### 할당량 (메서드당 정액)
+search.list 100 · videos.list 1 · channels.list 1 units / 일 10,000
+
+| 깊이 | 소비 | 하루 가능 |
+|---|---|---|
+| 50 | 102 | ~98회 |
+| 100 | 204 | ~49회 |
+| 200 | 408 | ~24회 |
+
+### 접근 불가 (설계 제약)
+타인 영상의 **자막**은 공식 API로 받을 수 없다. `captions.download`는 영상
+소유자 OAuth를 요구한다. 시청 지속률은 채널 소유자만(Analytics API) 볼 수 있다.
 
 ## UI 디자인 가이드
-- Tailwind 기반 Dark UI
-- 반응형 카드 (grid)
-- Viral Score ≥ 100배 시 붉은색 + 불꽃 애니메이션
+- Tailwind v4 기반 Dark UI
+- 반응형: 모바일 드로어 ↔ 데스크톱 고정 레일 (md 기준)
+- 성과배수 2배 이상 시 붉은 강조 (표시용 임계값이며 검증된 모델이 아니다)
 
 ## 환경변수
-NEXT_PUBLIC_YT_API_KEY=your_youtube_api_key
+YT_API_KEY=your_youtube_api_key   # 서버 전용. NEXT_PUBLIC_ 금지

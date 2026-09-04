@@ -2,7 +2,10 @@
 
 import { useState, useMemo } from 'react';
 import { VideoData, SearchFilters, searchYouTube } from './utils/youtubeApi';
-import { filterVideosByType, addVideoTypeToData } from './utils/videoUtils';
+import type { SearchDepth, SearchUsage } from '../types/youtube';
+import { filterVideosByType } from './utils/videoUtils';
+import { withMetrics, compareByMetric, type SortKey } from './utils/metrics';
+import SearchDepthPicker from './components/SearchDepthPicker';
 import Header from './components/Header';
 import Sidebar, { MobileNavDrawer, type VideoFilter } from './components/Sidebar';
 import SearchInput from './components/SearchInput';
@@ -11,7 +14,6 @@ import SortBar from './components/SortBar';
 import DisplayModeToggle from './components/DisplayModeToggle';
 import VideoCard from './components/VideoCard';
 
-type SortBy = 'viewCount' | 'subscriberCount' | 'viralScore' | 'publishedAt';
 type SortOrder = 'asc' | 'desc';
 type DisplayMode = 'grid' | 'list';
 
@@ -23,8 +25,12 @@ export default function Home() {
     order: 'relevance',
     videoDuration: 'any'
   });
-  const [sortBy, setSortBy] = useState<SortBy>('viewCount');
+  // 기본 정렬을 성과배수로 둔다. 조회수 순은 큰 채널만 위로 올라와,
+  // "작은 채널이 크게 터뜨린 영상"이라는 이 도구의 목적과 어긋난다.
+  const [sortBy, setSortBy] = useState<SortKey>('performanceMultiple');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [searchDepth, setSearchDepth] = useState<SearchDepth>(50);
+  const [usage, setUsage] = useState<SearchUsage | null>(null);
   const [displayMode, setDisplayMode] = useState<DisplayMode>('grid');
   const [videoFilter, setVideoFilter] = useState<VideoFilter>('home');
   // 데스크톱 레일의 접힘과 모바일 드로어의 열림은 서로 다른 상태다.
@@ -33,68 +39,40 @@ export default function Home() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Filter videos based on selected type (home/shorts/long)
-  const filteredVideos = useMemo(() => {
-    const videosWithType = addVideoTypeToData(videos);
-    return filterVideosByType(videosWithType, videoFilter);
-  }, [videos, videoFilter]);
+  // 파생 지표는 저장하지 않고 여기 한 곳에서만 만든다.
+  // 원본과 파생값을 둘 다 들고 있으면 언젠가 어긋난다.
+  const videosWithMetrics = useMemo(() => withMetrics(videos), [videos]);
 
-  const sortedVideos = useMemo(() => {
-    if (!filteredVideos.length) return [];
-    
-    const sorted = [...filteredVideos].sort((a, b) => {
-      let aValue: number;
-      let bValue: number;
-      
-      switch (sortBy) {
-        case 'viewCount':
-          aValue = a.viewCount || 0;
-          bValue = b.viewCount || 0;
-          break;
-        case 'subscriberCount':
-          aValue = a.subscriberCount || 0;
-          bValue = b.subscriberCount || 0;
-          break;
-        case 'viralScore':
-          aValue = a.viralScore || 0;
-          bValue = b.viralScore || 0;
-          break;
-        case 'publishedAt':
-          aValue = new Date(a.publishedAt).getTime();
-          bValue = new Date(b.publishedAt).getTime();
-          break;
-        default:
-          return 0;
-      }
-      
-      if (sortOrder === 'asc') {
-        return aValue - bValue;
-      } else {
-        return bValue - aValue;
-      }
-    });
-    
-    return sorted;
-  }, [filteredVideos, sortBy, sortOrder]);
+  const filteredVideos = useMemo(
+    () => filterVideosByType(videosWithMetrics, videoFilter),
+    [videosWithMetrics, videoFilter],
+  );
 
-  const handleSearch = async (searchTerm: string) => {
+  const sortedVideos = useMemo(
+    () => [...filteredVideos].sort((a, b) => compareByMetric(a, b, sortBy, sortOrder)),
+    [filteredVideos, sortBy, sortOrder],
+  );
+
+  const handleSearch = async (term: string) => {
     setIsLoading(true);
     setError(null);
-    setSearchTerm(searchTerm);
+    setSearchTerm(term);
     setVideos([]); // 새로운 검색 시작 시 이전 결과 완전히 초기화
-    
+    setUsage(null);
+
     try {
-      const { videos: results } = await searchYouTube(searchTerm, filters, 200);
+      const { videos: results, usage: spent } = await searchYouTube(term, filters, searchDepth);
       setVideos(results);
+      setUsage(spent);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed');
+      setError(err instanceof Error ? err.message : '검색에 실패했습니다.');
       setVideos([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSortChange = (newSortBy: SortBy, newSortOrder: SortOrder) => {
+  const handleSortChange = (newSortBy: SortKey, newSortOrder: SortOrder) => {
     setSortBy(newSortBy);
     setSortOrder(newSortOrder);
   };
@@ -113,9 +91,10 @@ export default function Home() {
     setVideos([]);
     setError(null);
     setVideoFilter('home');
-    setSortBy('viewCount');
+    setSortBy('performanceMultiple');
     setSortOrder('desc');
     setDisplayMode('grid');
+    setUsage(null);
     setFilters({
       order: 'relevance',
       videoDuration: 'any'
@@ -160,12 +139,18 @@ export default function Home() {
                 <h1 className="text-3xl sm:text-5xl font-bold mb-4 bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">
                   YouTube Insight
                 </h1>
-                <p className="text-xl text-gray-400">
-                  YouTube 검색과 떡상지수 분석을 한번에
+                <p className="text-lg sm:text-xl text-gray-400">
+                  채널 평소 대비 얼마나 터졌는지로 영상을 찾습니다
                 </p>
               </div>
-              
+
               <SearchInput onSearch={handleSearch} isLoading={isLoading} />
+              <SearchDepthPicker
+                value={searchDepth}
+                onChange={setSearchDepth}
+                lastUsage={usage}
+                disabled={isLoading}
+              />
               <Filters filters={filters} onFiltersChange={setFilters} />
             </div>
           )}
@@ -184,6 +169,12 @@ export default function Home() {
                   초기화
                 </button>
               </div>
+              <SearchDepthPicker
+                value={searchDepth}
+                onChange={setSearchDepth}
+                lastUsage={usage}
+                disabled={isLoading}
+              />
               <Filters filters={filters} onFiltersChange={setFilters} />
             </div>
           )}

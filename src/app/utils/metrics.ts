@@ -1,0 +1,101 @@
+import type { VideoData, VideoMetrics, VideoWithMetrics } from '../../types/youtube.ts';
+
+const DAY_MS = 86_400_000;
+
+/**
+ * 파생 지표 계산.
+ *
+ * 여기가 파생값을 만드는 **유일한 곳**이다. VideoData에는 API가 준 사실만
+ * 담고, 성과배수 같은 값은 저장하지 않는다. 저장하면 원본과 파생값이 두 개의
+ * 진실이 되어 언젠가 어긋난다.
+ *
+ * 계산 불가는 0이 아니라 null이다. 좋아요를 숨긴 영상의 참여율을 0으로 쓰면
+ * "반응이 없는 영상"과 구분되지 않는다.
+ */
+
+/** 업로드 후 경과일(내림). 미래 시각이면 0. */
+export function daysSincePublish(publishedAt: string, now: number = Date.now()): number {
+  const published = new Date(publishedAt).getTime();
+  if (!Number.isFinite(published)) return 0;
+  return Math.max(0, Math.floor((now - published) / DAY_MS));
+}
+
+function ratio(numerator: number | null, denominator: number | null): number | null {
+  if (numerator === null || denominator === null || denominator <= 0) return null;
+  return numerator / denominator;
+}
+
+export function computeMetrics(video: VideoData, now: number = Date.now()): VideoMetrics {
+  const days = daysSincePublish(video.publishedAt, now);
+
+  return {
+    // 주지표: 이 채널이 평소 받는 조회수 대비 몇 배인가.
+    // 구독자수와 달리 반올림도 없고 비공개로 사라지지도 않는다.
+    performanceMultiple: ratio(video.viewCount, video.channel.averageViews),
+
+    // 채널 평균은 영상들의 '누적' 조회수 평균이라 신작에 불리하다.
+    // 그 편향을 보정할 짝으로 하루당 조회수를 함께 둔다.
+    // 업로드 당일 영상은 0일이 되므로 최소 1일로 본다(과대평가 방지).
+    viewsPerDay: video.viewCount / Math.max(1, days),
+    daysSincePublish: days,
+
+    likeRate: ratio(video.likeCount, video.viewCount),
+    commentRate: ratio(video.commentCount, video.viewCount),
+
+    // 예전 떡상지수. 분모가 3자리로 반올림되고 비공개면 사라지므로 참고값.
+    subscriberRatio: ratio(video.viewCount, video.channel.subscriberCount),
+  };
+}
+
+export function withMetrics(videos: VideoData[], now: number = Date.now()): VideoWithMetrics[] {
+  return videos.map((video) => ({ ...video, metrics: computeMetrics(video, now) }));
+}
+
+/**
+ * 정렬 키. 계산 불가(null)는 항상 뒤로 보낸다.
+ *
+ * null을 0으로 바꿔 정렬하면 "측정 불가"가 "성과 없음"인 척하며 목록 아래쪽에
+ * 섞여 들어간다. 방향(오름/내림)과 무관하게 뒤로 밀어야 구분이 유지된다.
+ */
+export function compareByMetric(
+  a: VideoWithMetrics,
+  b: VideoWithMetrics,
+  key: SortKey,
+  order: 'asc' | 'desc',
+): number {
+  const av = sortValue(a, key);
+  const bv = sortValue(b, key);
+
+  if (av === null && bv === null) return 0;
+  if (av === null) return 1;
+  if (bv === null) return -1;
+
+  return order === 'asc' ? av - bv : bv - av;
+}
+
+export type SortKey =
+  | 'viewCount'
+  | 'performanceMultiple'
+  | 'viewsPerDay'
+  | 'likeRate'
+  | 'subscriberCount'
+  | 'publishedAt';
+
+function sortValue(video: VideoWithMetrics, key: SortKey): number | null {
+  switch (key) {
+    case 'viewCount':
+      return video.viewCount;
+    case 'performanceMultiple':
+      return video.metrics.performanceMultiple;
+    case 'viewsPerDay':
+      return video.metrics.viewsPerDay;
+    case 'likeRate':
+      return video.metrics.likeRate;
+    case 'subscriberCount':
+      return video.channel.subscriberCount;
+    case 'publishedAt': {
+      const t = new Date(video.publishedAt).getTime();
+      return Number.isFinite(t) ? t : null;
+    }
+  }
+}

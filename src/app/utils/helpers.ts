@@ -11,7 +11,9 @@ export function formatViewCount(count: number): string {
   return count.toString();
 }
 
-export function formatSubscriberCount(count: number): string {
+/** 구독자수를 숨긴 채널은 null로 온다. 0으로 표시하면 '구독자 0명'과 구분되지 않는다. */
+export function formatSubscriberCount(count: number | null): string {
+  if (count === null) return '비공개';
   if (count >= 1000000) {
     return (count / 1000000).toFixed(1) + 'M';
   }
@@ -60,6 +62,27 @@ export function truncateText(text: string, maxLength: number): string {
   return text.substring(0, maxLength) + '...';
 }
 
-export function isHighViralScore(score: number): boolean {
-  return score >= 1; // 조회수가 구독자수보다 많으면 바이럴
+/** 배수 지표. 계산 불가는 숫자로 위장하지 않고 그대로 말한다. */
+export function formatMultiple(value: number | null): string {
+  if (value === null) return '측정불가';
+  return formatViralScore(value) + '배';
+}
+
+/** 비율 지표(참여율 등). 계산 불가는 빈 값이 아니라 물결표로 구분한다. */
+export function formatPercent(value: number | null): string {
+  if (value === null) return '—';
+  if (value >= 0.1) return (value * 100).toFixed(0) + '%';
+  return (value * 100).toFixed(2) + '%';
+}
+
+/**
+ * 표시용 강조 기준: 채널 평소 조회수의 2배 이상.
+ *
+ * 검증된 모델이 아니라 눈에 띄게 하기 위한 표시 임계값이다. 이 숫자에
+ * 통계적 의미를 부여하지 말 것.
+ */
+export const OUTPERFORM_THRESHOLD = 2;
+
+export function isOutperforming(performanceMultiple: number | null): boolean {
+  return performanceMultiple !== null && performanceMultiple >= OUTPERFORM_THRESHOLD;
 }

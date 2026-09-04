@@ -53,32 +53,23 @@ export function formatDuration(duration: string): string {
   }
 }
 
-export function filterVideosByType(videos: VideoData[], type: 'home' | 'shorts' | 'long'): VideoData[] {
+/**
+ * 길이 기준으로 걸러낸다.
+ *
+ * 제네릭인 이유: 지표가 붙은 목록(VideoWithMetrics)을 넣었을 때 VideoData로
+ * 좁혀져 metrics가 사라지면 안 된다.
+ */
+export function filterVideosByType<T extends Pick<VideoData, 'duration'>>(
+  videos: T[],
+  type: 'home' | 'shorts' | 'long',
+): T[] {
   if (type === 'home') {
     return videos;
   }
-  
-  return videos.filter(video => {
-    const duration = video.duration || 'PT0S';
-    const videoType = getVideoType(duration);
-    return videoType === type;
-  });
+
+  return videos.filter((video) => getVideoType(video.duration || 'PT0S') === type);
 }
 
 export function isShorts(duration: string): boolean {
   return getVideoType(duration) === 'shorts';
-}
-
-export function addVideoTypeToData(videos: VideoData[]): (VideoData & { videoType: VideoType; durationFormatted: string })[] {
-  return videos.map(video => {
-    const duration = video.duration || 'PT0S';
-    const videoType = getVideoType(duration);
-    const durationFormatted = formatDuration(duration);
-    
-    return {
-      ...video,
-      videoType,
-      durationFormatted
-    };
-  });
 }

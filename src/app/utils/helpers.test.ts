@@ -6,7 +6,9 @@ import {
   formatViralScore,
   formatPublishedDate,
   truncateText,
-  isHighViralScore,
+  formatMultiple,
+  formatPercent,
+  isOutperforming,
 } from './helpers.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -50,6 +52,49 @@ describe('formatSubscriberCount', () => {
   // 않으므로 의도된 차이이며, 이 테스트가 그 사실을 고정한다.
   test('십억 단위는 M으로 표기한다 (B 단계 없음)', () => {
     assert.equal(formatSubscriberCount(1_000_000_000), '1000.0M');
+  });
+
+  // 숨긴 채널을 0으로 표시하면 '구독자가 0명인 채널'과 구분되지 않는다.
+  test('비공개(null)와 0명을 구분한다', () => {
+    assert.equal(formatSubscriberCount(null), '비공개');
+    assert.equal(formatSubscriberCount(0), '0');
+  });
+});
+
+describe('formatMultiple', () => {
+  test('배수를 단위와 함께 표기한다', () => {
+    assert.equal(formatMultiple(5), '5.00배');
+    assert.equal(formatMultiple(15.55), '15.6배');
+    assert.equal(formatMultiple(1500), '1.5K배');
+  });
+
+  test('계산 불가는 숫자로 위장하지 않는다', () => {
+    assert.equal(formatMultiple(null), '측정불가');
+  });
+});
+
+describe('formatPercent', () => {
+  test('10% 이상은 정수로, 미만은 소수 둘째 자리까지', () => {
+    assert.equal(formatPercent(0.25), '25%');
+    assert.equal(formatPercent(0.05), '5.00%');
+    assert.equal(formatPercent(0.002), '0.20%');
+  });
+
+  test('실제 0과 계산 불가를 구분한다', () => {
+    assert.equal(formatPercent(0), '0.00%');
+    assert.equal(formatPercent(null), '—');
+  });
+});
+
+describe('isOutperforming', () => {
+  test('채널 평소의 2배 이상이면 강조한다', () => {
+    assert.equal(isOutperforming(2), true);
+    assert.equal(isOutperforming(5.5), true);
+  });
+
+  test('2배 미만이거나 측정 불가면 강조하지 않는다', () => {
+    assert.equal(isOutperforming(1.9), false);
+    assert.equal(isOutperforming(null), false);
   });
 });
 
@@ -124,13 +169,3 @@ describe('truncateText', () => {
   });
 });
 
-describe('isHighViralScore', () => {
-  test('조회수가 구독자수 이상이면 바이럴로 본다', () => {
-    assert.equal(isHighViralScore(1), true);
-    assert.equal(isHighViralScore(2.5), true);
-  });
-
-  test('1 미만은 바이럴이 아니다', () => {
-    assert.equal(isHighViralScore(0.99), false);
-  });
-});

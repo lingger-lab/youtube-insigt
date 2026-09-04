@@ -1,53 +1,48 @@
 'use client';
 
-import { VideoData } from '../utils/youtubeApi';
-import { 
-  formatViewCount, 
-  formatSubscriberCount, 
-  formatViralScore, 
+import { useState } from 'react';
+import type { VideoWithMetrics } from '../../types/youtube';
+import {
+  formatViewCount,
+  formatSubscriberCount,
+  formatMultiple,
+  formatPercent,
   formatPublishedDate,
   truncateText,
-  isHighViralScore
+  isOutperforming,
 } from '../utils/helpers';
 import { formatDuration, isShorts, getVideoDurationInSeconds } from '../utils/videoUtils';
 
 interface VideoCardProps {
-  video: VideoData;
+  video: VideoWithMetrics;
   displayMode: 'grid' | 'list';
 }
 
+type CopyState = 'idle' | 'copied' | 'failed';
+
 export default function VideoCard({ video, displayMode }: VideoCardProps) {
-  const isViral = isHighViralScore(video.viralScore);
-  const isShortVideo = isShorts(video.duration || 'PT0S');
-  const duration = formatDuration(video.duration || 'PT0S');
+  const [copyState, setCopyState] = useState<CopyState>('idle');
+
+  const { metrics } = video;
+  const outperforming = isOutperforming(metrics.performanceMultiple);
+  const isShortVideo = isShorts(video.duration);
+  const duration = formatDuration(video.duration);
 
   const handleVideoClick = () => {
     window.open(`https://www.youtube.com/watch?v=${video.id}`, '_blank');
   };
 
   const handleCopyAnalysisPrompt = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // 비디오 클릭 이벤트 방지
-    
-    // 영상 길이를 분 단위로 계산 (초 단위를 분으로 변환, 최소 1분)
-    const durationInSeconds = getVideoDurationInSeconds(video.duration || 'PT0S');
+    e.stopPropagation();
+
+    const durationInSeconds = getVideoDurationInSeconds(video.duration);
     const durationInMinutes = Math.max(1, Math.round(durationInSeconds / 60));
-    const videoLengthHint = durationInSeconds > 0 
-      ? `${durationInMinutes}분` 
-      : '6분';
-    
+    const videoLengthHint = durationInSeconds > 0 ? `${durationInMinutes}분` : '6분';
+
     const prompt = `# 📌 전제조건: 내 주제 설정
 **"내가 적용할 주제는 무엇인가요?"**
 
 아래 분석을 시작하기 전에, 먼저 당신의 주제/분야를 명확히 입력해 주세요.
-
-**예시:**
-- "온라인 마케팅 강의"
-- "요리 레시피 콘텐츠" 
-- "투자/재테크 정보"
-- "건강/피트니스 팁"
-- "육아/교육 노하우"
-- "게임 공략/리뷰"
-- "여행 브이로그"
 
 **👇 여기에 당신의 주제를 입력하세요:**
 \`\`\`
@@ -60,8 +55,9 @@ export default function VideoCard({ video, displayMode }: VideoCardProps) {
 - **제목**: ${video.title}
 - **채널**: ${video.channelTitle}
 - **조회수**: ${formatViewCount(video.viewCount)}
-- **구독자수**: ${formatSubscriberCount(video.subscriberCount)}
-- **떡상지수**: ${formatViralScore(video.viralScore)}
+- **구독자수**: ${formatSubscriberCount(video.channel.subscriberCount)}
+- **성과배수(채널 평소 대비)**: ${formatMultiple(metrics.performanceMultiple)}
+- **좋아요율**: ${formatPercent(metrics.likeRate)}
 - **업로드**: ${formatPublishedDate(video.publishedAt)}
 - **링크**: https://www.youtube.com/watch?v=${video.id}
 
@@ -79,26 +75,21 @@ export default function VideoCard({ video, displayMode }: VideoCardProps) {
   - 제목(60자 이내, 키워드 선두 배치)
   - 썸네일_텍스트(최대 4단어), 썸네일_구성(피사체/앵글/대비/여백), 추천요소(아이콘·인물·표정)
   - 배경/색 대비(라이트/다크/고대비 중), 금지요소(작은 글자, 저해상도 등)
-  - 왜 클릭되는지 한기대 KPI(CTR/AVD/완시율 중)
+  - 왜 클릭되는지 + 기대 KPI(CTR/AVD/완시율 중)
 
 ## 3) 시청지속 시간을 위한 대본 구조 설계
-- 총 길이 가정: ${videoLengthHint} (모르면 6분 가정)
-
+- 총 길이 가정: ${videoLengthHint}
 - 초반 10초 내 훅 3안 → 최적안 1개 추천.
-
 - 타임라인(초 단위)로 제시:
   - HOOK(0~5s): [대사/자막], 시각 컷, 사운드 제안
   - 전개(5~45s): 문제정의→약속→자격부여(왜 나인가)
-  - 본론 파트(시간블럭별): 핵 포인트, B-roll/오버레이, 패턴인터럽트(점프컷/퀴즈/전환), 오픈루프 배치
+  - 본론 파트(시간블럭별): 핵심 포인트, B-roll/오버레이, 패턴인터럽트, 오픈루프 배치
   - 클라이맥스/증거 제시: 데이터·전/후 비교
-  - 마무리 & CTA(구독/다음편 티저): 강요 없이 자연 유도
-
-- "이탈 위험 구간 & 회수 장치"를 표로 정리(구간/위험신호/개입전략).
-
+  - 마무리 & CTA(구독/다음편 티저)
 - 스크립트 톤&보이스 가이드 3줄, 금지 리스트 3개(클릭베이트 과장 등).
 
-## 4) 벤치마킹-적용 매핑표 (간단)
-- 원본 요소 → 내 영상 적용 방식 → 기대 KPI(CTR/AVD/완시율 중)
+## 4) 벤치마킹-적용 매핑표
+- 원본 요소 → 내 영상 적용 방식 → 기대 KPI
 
 ## 5) 최종 복사용 요약
 - 제목만 리스트(5개)
@@ -106,38 +97,51 @@ export default function VideoCard({ video, displayMode }: VideoCardProps) {
 - 1문장 전략 요약(TL;DR)
 
 # 작성 규칙
-- 벤치마킹요소_원문을 그대로 재탕하지 말고, **의도/원리**를 추출해 재조합.
-- 수치/구체성 선호("3단계", "7분 안에" 등). 과장/허위 금지.
-- 출력은 **Markdown**으로 섹션/하위목록을 명확히.
-- 내가 붙여넣은 데이터가 부족해 보이면, 합리적 가정을 명시하고 진행.
-
-# 품질관리(내부 사고는 숨기고 결과만 제시)
-- (내부) "Have a Break…" 3가지 다른 접근을 시도해 가장 일관된 결과만 출력.
-- (내부) 트리 오브 생각으로 훅/제목 후보를 탐색하되, **최종안만** 보여줄 것.`;
+- 원문을 그대로 재탕하지 말고, **의도/원리**를 추출해 재조합.
+- 수치/구체성 선호. 과장/허위 금지.
+- 출력은 **Markdown**으로.
+- **위 데이터에 없는 항목은 추측하지 말고 "데이터 없음"이라고 명시할 것.**`;
 
     try {
       await navigator.clipboard.writeText(prompt);
-      
-      // 성공 피드백 (간단한 알림)
-      const button = e.target as HTMLButtonElement;
-      const originalText = button.textContent;
-      button.textContent = '복사완료!';
-      button.style.backgroundColor = '#10b981'; // green
-      
-      setTimeout(() => {
-        button.textContent = originalText;
-        button.style.backgroundColor = '#8b5cf6'; // purple
-      }, 1500);
-      
-    } catch (err) {
-      console.error('클립보드 복사 실패:', err);
-      alert('클립보드 복사에 실패했습니다.');
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
     }
+    setTimeout(() => setCopyState('idle'), 1800);
   };
+
+  const copyLabel = copyState === 'copied' ? '복사됨' : copyState === 'failed' ? '복사 실패' : null;
+
+  const copyButtonClass = (base: string) =>
+    `${base} text-white text-xs font-medium rounded-md transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-800 focus-visible:ring-purple-400 ${
+      copyState === 'copied'
+        ? 'bg-emerald-600'
+        : copyState === 'failed'
+          ? 'bg-red-700'
+          : 'bg-purple-600 hover:bg-purple-700'
+    }`;
+
+  /** 채널 평소 대비 성과. 측정 불가는 숫자로 위장하지 않고 그대로 표시한다. */
+  const performanceBadge = (
+    <div
+      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${
+        outperforming
+          ? 'bg-linear-to-r from-red-600 to-orange-500 text-white'
+          : metrics.performanceMultiple === null
+            ? 'bg-gray-700 text-gray-400'
+            : 'bg-gray-700 text-gray-300'
+      }`}
+      title="채널 평균 조회수 대비 이 영상의 조회수"
+    >
+      {outperforming && <span aria-hidden="true">🔥</span>}
+      {formatMultiple(metrics.performanceMultiple)}
+    </div>
+  );
 
   if (displayMode === 'list') {
     return (
-      <div 
+      <div
         onClick={handleVideoClick}
         className="flex flex-col sm:flex-row gap-4 p-4 bg-gray-800 rounded-lg hover:bg-gray-700 cursor-pointer transition-colors"
       >
@@ -147,50 +151,45 @@ export default function VideoCard({ video, displayMode }: VideoCardProps) {
             alt={video.title}
             className="w-full sm:w-48 aspect-video object-cover rounded-md"
           />
-          {/* Duration Badge */}
-          <div className="absolute bottom-2 right-2 bg-black bg-opacity-80 text-white text-xs px-2 py-1 rounded">
+          <div className="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
             {duration}
           </div>
-          {/* Shorts Badge */}
           {isShortVideo && (
             <div className="absolute top-2 left-2 bg-white text-black text-xs px-2 py-1 rounded font-bold">
               Shorts
             </div>
           )}
         </div>
-        
+
         <div className="flex-1 min-w-0">
-          <h3 className="text-lg font-semibold text-white mb-2 line-clamp-2">
-            {video.title}
-          </h3>
-          
+          <h3 className="text-lg font-semibold text-white mb-2 line-clamp-2">{video.title}</h3>
+
           <p className="text-gray-300 text-sm mb-3 line-clamp-2">
             {truncateText(video.description, 150)}
           </p>
-          
-          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-400">
+
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-400">
             <span className="text-gray-300 font-medium">{video.channelTitle}</span>
             <span>조회수 {formatViewCount(video.viewCount)}</span>
-            <span>구독자 {formatSubscriberCount(video.subscriberCount)}</span>
+            <span>구독자 {formatSubscriberCount(video.channel.subscriberCount)}</span>
             <span>{formatPublishedDate(video.publishedAt)}</span>
+            <span title="업로드 후 하루당 평균 조회수">
+              일평균 {formatViewCount(Math.round(metrics.viewsPerDay))}
+            </span>
+            <span title="좋아요 ÷ 조회수">좋아요율 {formatPercent(metrics.likeRate)}</span>
+            {video.hasCaption && <span className="text-gray-500">자막 있음</span>}
           </div>
-          
-          <div className="flex items-center justify-between mt-3">
-            <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-sm font-medium ${
-              isViral 
-                ? 'bg-gradient-to-r from-red-600 to-orange-500 text-white animate-pulse' 
-                : 'bg-gray-700 text-gray-300'
-            }`}>
-              {isViral && <span>🔥</span>}
-              떡상지수 {formatViralScore(video.viralScore)}
-            </div>
-            
+
+          <div className="flex items-center justify-between gap-2 mt-3">
+            {performanceBadge}
+
             <button
+              type="button"
               onClick={handleCopyAnalysisPrompt}
-              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-md transition-colors"
+              className={copyButtonClass('px-3 py-1.5')}
               title="AI 전략기획 분석 프롬프트 복사"
             >
-              AI분석복사
+              {copyLabel ?? 'AI분석복사'}
             </button>
           </div>
         </div>
@@ -199,67 +198,55 @@ export default function VideoCard({ video, displayMode }: VideoCardProps) {
   }
 
   return (
-    <div 
+    <div
       onClick={handleVideoClick}
       className="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 cursor-pointer transition-colors"
     >
       <div className="relative">
-        <img
-          src={video.thumbnailUrl}
-          alt={video.title}
-          className="w-full h-48 object-cover"
-        />
-        {/* Duration Badge */}
-        <div className="absolute bottom-2 right-2 bg-black bg-opacity-80 text-white text-xs px-2 py-1 rounded">
+        <img src={video.thumbnailUrl} alt={video.title} className="w-full aspect-video object-cover" />
+        <div className="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
           {duration}
         </div>
-        {/* Shorts Badge */}
         {isShortVideo && (
           <div className="absolute top-2 left-2 bg-white text-black text-xs px-2 py-1 rounded font-bold">
             Shorts
           </div>
         )}
-        {/* Viral Badge */}
-        {isViral && (
-          <div className="absolute top-2 right-2 bg-gradient-to-r from-red-600 to-orange-500 text-white px-2 py-1 rounded-md text-xs font-bold animate-pulse">
-            🔥 VIRAL
+        {outperforming && (
+          <div className="absolute top-2 right-2 bg-linear-to-r from-red-600 to-orange-500 text-white px-2 py-1 rounded-md text-xs font-bold">
+            🔥 {formatMultiple(metrics.performanceMultiple)}
           </div>
         )}
       </div>
-      
+
       <div className="p-4">
         <h3 className="text-white font-semibold mb-2 line-clamp-2 text-sm leading-tight">
           {video.title}
         </h3>
-        
+
         <div className="text-gray-400 text-xs mb-2">
-          <div className="font-medium text-gray-300 mb-1">{video.channelTitle}</div>
+          <div className="font-medium text-gray-300 mb-1 truncate">{video.channelTitle}</div>
           <div className="flex justify-between">
             <span>조회수 {formatViewCount(video.viewCount)}</span>
             <span>{formatPublishedDate(video.publishedAt)}</span>
           </div>
         </div>
-        
-        <div className="text-xs text-gray-400 mb-2">
-          구독자 {formatSubscriberCount(video.subscriberCount)}
+
+        <div className="flex justify-between text-xs text-gray-400 mb-2">
+          <span>구독자 {formatSubscriberCount(video.channel.subscriberCount)}</span>
+          <span title="좋아요 ÷ 조회수">좋아요율 {formatPercent(metrics.likeRate)}</span>
         </div>
-        
+
         <div className="flex justify-between items-center gap-2">
-          <div className={`px-2 py-1 rounded-md text-xs font-medium ${
-            isViral 
-              ? 'bg-gradient-to-r from-red-600 to-orange-500 text-white' 
-              : 'bg-gray-700 text-gray-300'
-          }`}>
-            {isViral && <span className="mr-1">🔥</span>}
-            {formatViralScore(video.viralScore)}
-          </div>
-          
+          {performanceBadge}
+
           <button
+            type="button"
             onClick={handleCopyAnalysisPrompt}
-            className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-md transition-colors flex-shrink-0"
+            className={copyButtonClass('px-2 py-1')}
             title="AI 전략기획 분석 프롬프트 복사"
           >
-            AI분석
+            {copyLabel ?? 'AI분석'}
           </button>
         </div>
       </div>

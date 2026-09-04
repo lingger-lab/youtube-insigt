@@ -7,7 +7,6 @@ import {
   formatDuration,
   filterVideosByType,
   isShorts,
-  addVideoTypeToData,
 } from './videoUtils.ts';
 
 /** 테스트마다 독립된 객체를 만들기 위한 팩토리 (정적 픽스처 공유 금지) */
@@ -17,13 +16,25 @@ function makeVideo(overrides: Partial<VideoData> = {}): VideoData {
     title: '제목',
     description: '설명',
     thumbnailUrl: 'https://i.ytimg.com/vi/vid1/mqdefault.jpg',
+    thumbnailHighUrl: 'https://i.ytimg.com/vi/vid1/maxresdefault.jpg',
     viewCount: 1000,
+    likeCount: 50,
+    commentCount: 5,
     publishedAt: '2026-01-01T00:00:00Z',
     channelId: 'ch1',
     channelTitle: '채널',
-    subscriberCount: 100,
-    viralScore: 10,
     duration: 'PT5M',
+    tags: [],
+    categoryId: '22',
+    hasCaption: false,
+    channel: {
+      channelId: 'ch1',
+      subscriberCount: 100,
+      hiddenSubscriberCount: false,
+      videoCount: 10,
+      totalViewCount: 10_000,
+      averageViews: 1000,
+    },
     ...overrides,
   };
 }
@@ -140,19 +151,5 @@ describe('filterVideosByType', () => {
     const videos = [makeVideo({ duration: 'PT1M' }), makeVideo({ duration: 'PT10M' })];
     filterVideosByType(videos, 'shorts');
     assert.equal(videos.length, 2);
-  });
-});
-
-describe('addVideoTypeToData', () => {
-  test('videoType과 durationFormatted를 덧붙인다', () => {
-    const result = addVideoTypeToData([makeVideo({ duration: 'PT4M13S' })]);
-    assert.equal(result[0].videoType, 'long');
-    assert.equal(result[0].durationFormatted, '4:13');
-  });
-
-  test('원본 객체를 변경하지 않는다', () => {
-    const video = makeVideo({ duration: 'PT4M13S' });
-    addVideoTypeToData([video]);
-    assert.equal('videoType' in video, false);
   });
 });
