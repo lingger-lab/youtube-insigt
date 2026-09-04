@@ -39,7 +39,12 @@ export default function Home() {
   // 하나로 겸직시키면 뷰포트를 넘나들 때 화면이 상태와 어긋난다.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // 입력 중인 값과 "실제로 검색된 값"은 다른 사실이다.
+  const [queryInput, setQueryInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  // "검색어가 있는가"와 "검색을 했는가"를 한 변수로 겸직시키면, 초기화 때
+  // 히어로·결과·빈 상태가 동시에 렌더된다. 분리해서 각자 한 가지만 답하게 한다.
+  const [hasSearched, setHasSearched] = useState(false);
 
   // 파생 지표는 저장하지 않고 여기 한 곳에서만 만든다.
   // 원본과 파생값을 둘 다 들고 있으면 언젠가 어긋난다.
@@ -63,6 +68,8 @@ export default function Home() {
     setIsLoading(true);
     setError(null);
     setSearchTerm(term);
+    setQueryInput(term);
+    setHasSearched(true);
     setVideos([]); // 새로운 검색 시작 시 이전 결과 완전히 초기화
     setUsage(null);
 
@@ -91,16 +98,24 @@ export default function Home() {
     setSidebarCollapsed(!sidebarCollapsed);
   };
 
-  const handleLogoClick = () => {
-    // 메인화면으로 돌아가기
+  /**
+   * 첫 화면으로 되돌린다.
+   *
+   * 예전 '초기화'는 searchTerm만 비우고 결과는 남겨, 히어로 검색창과 결과
+   * 목록과 "InSigt를 발굴하세요" 빈 상태가 한 화면에 겹쳐 나왔다. 되돌리는
+   * 동작은 자기가 소유한 상태를 **전부** 되돌려야 한다.
+   */
+  const resetToHome = () => {
+    setQueryInput('');
     setSearchTerm('');
+    setHasSearched(false);
     setVideos([]);
     setError(null);
+    setUsage(null);
     setVideoFilter('home');
     setSortBy('performanceMultiple');
     setSortOrder('desc');
     setDisplayMode('grid');
-    setUsage(null);
     setFilters({
       order: 'relevance',
       videoDuration: 'any'
@@ -115,7 +130,7 @@ export default function Home() {
         isMobileMenuOpen={mobileNavOpen}
         onSidebarCollapseToggle={handleSidebarToggle}
         isSidebarCollapsed={sidebarCollapsed}
-        onLogoClick={handleLogoClick}
+        onLogoClick={resetToHome}
       />
 
       {/* Sidebar: 데스크톱 고정 레일 + 모바일 드로어 */}
@@ -139,10 +154,10 @@ export default function Home() {
         <div className="container mx-auto px-4 md:px-6 py-6 md:py-8">
           
           {/* Search Section - Only show if no search has been made yet */}
-          {!searchTerm && (
+          {!hasSearched && (
             <div className="max-w-4xl mx-auto text-center mb-12">
               <div className="mb-8">
-                <h1 className="text-3xl sm:text-5xl font-bold mb-4 bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">
+                <h1 className="text-3xl sm:text-5xl font-bold mb-4 bg-linear-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">
                   YouTube Insight
                 </h1>
                 <p className="text-lg sm:text-xl text-gray-400">
@@ -150,7 +165,12 @@ export default function Home() {
                 </p>
               </div>
 
-              <SearchInput onSearch={handleSearch} isLoading={isLoading} />
+              <SearchInput
+                value={queryInput}
+                onChange={setQueryInput}
+                onSearch={handleSearch}
+                isLoading={isLoading}
+              />
               <SearchDepthPicker
                 value={searchDepth}
                 onChange={setSearchDepth}
@@ -162,15 +182,21 @@ export default function Home() {
           )}
 
           {/* Compact Search - Show after first search */}
-          {searchTerm && (
+          {hasSearched && (
             <div className="mb-6">
               <div className="flex items-center gap-4 mb-4">
                 <div className="flex-1 max-w-2xl">
-                  <SearchInput onSearch={handleSearch} isLoading={isLoading} />
+                  <SearchInput
+                    value={queryInput}
+                    onChange={setQueryInput}
+                    onSearch={handleSearch}
+                    isLoading={isLoading}
+                  />
                 </div>
                 <button
-                  onClick={() => setSearchTerm('')}
-                  className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+                  type="button"
+                  onClick={resetToHome}
+                  className="px-4 py-2 text-gray-400 hover:text-white transition-colors rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                 >
                   초기화
                 </button>
@@ -266,33 +292,49 @@ export default function Home() {
             </>
           )}
 
-          {/* No Results for Current Filter */}
-          {searchTerm && videos.length > 0 && sortedVideos.length === 0 && (
+          {/* 필터 때문에 비었을 때 — 검색은 됐지만 이 유형만 없다 */}
+          {!isLoading && hasSearched && videos.length > 0 && sortedVideos.length === 0 && (
             <div className="text-center text-gray-400 mt-12">
-              <div className="text-6xl mb-4">📹</div>
               <p className="text-xl">
-                {videoFilter === 'shorts' && 'Shorts 영상이 없습니다'}
-                {videoFilter === 'long' && 'Long 영상이 없습니다'}
+                {videoFilter === 'shorts' ? 'Shorts 영상이 없습니다' : 'Long 영상이 없습니다'}
               </p>
-              <p className="text-sm mt-2">다른 필터를 선택해보세요.</p>
+              <p className="text-sm mt-2">왼쪽 메뉴에서 &lsquo;홈&rsquo;을 선택하면 전체를 볼 수 있습니다.</p>
+              <button
+                type="button"
+                onClick={() => setVideoFilter('home')}
+                className="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+              >
+                전체 보기
+              </button>
             </div>
           )}
 
-          {/* Empty State */}
-          {!isLoading && !searchTerm && (
+          {/* 검색은 됐는데 결과가 아예 없을 때 — 예전에는 아무것도 안 나왔다 */}
+          {!isLoading && hasSearched && !error && videos.length === 0 && (
             <div className="text-center text-gray-400 mt-12">
-              <div className="text-6xl mb-4">🔍</div>
-              <p className="text-xl">InSigt를 발굴하세요!</p>
+              <p className="text-xl">검색 결과가 없습니다</p>
+              <p className="text-sm mt-2">
+                필터(업로드 시기·영상 길이)를 넓히거나 다른 키워드를 시도해 보세요.
+              </p>
+            </div>
+          )}
+
+          {/* 첫 화면 */}
+          {!isLoading && !hasSearched && (
+            <div className="text-center text-gray-400 mt-12">
+              <p className="text-xl">InSigt를 발굴하세요</p>
               <p className="text-sm mt-2">키워드를 입력하고 검색 버튼을 눌러주세요.</p>
             </div>
           )}
 
-          {/* Loading State */}
+          {/* 로딩 */}
           {isLoading && (
-            <div className="text-center mt-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-600 border-t-red-500 mx-auto mb-4"></div>
+            <div className="text-center mt-12" role="status" aria-live="polite">
+              <div className="animate-spin motion-reduce:animate-none rounded-full h-12 w-12 border-4 border-gray-600 border-t-red-500 mx-auto mb-4" aria-hidden="true"></div>
               <p className="text-gray-400">YouTube에서 검색 중...</p>
-              <p className="text-sm text-gray-500 mt-2">최대 200개의 결과를 가져오고 있습니다.</p>
+              <p className="text-sm text-gray-500 mt-2">
+                최대 <span className="tabular-nums">{searchDepth}</span>개의 결과를 가져오고 있습니다.
+              </p>
             </div>
           )}
         </div>

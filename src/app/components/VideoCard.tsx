@@ -28,9 +28,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
   const isShortVideo = isShorts(video.duration);
   const duration = formatDuration(video.duration);
 
-  const handleVideoClick = () => {
-    window.open(`https://www.youtube.com/watch?v=${video.id}`, '_blank');
-  };
+  const watchUrl = `https://www.youtube.com/watch?v=${video.id}`;
 
   const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm);
 
@@ -53,11 +51,14 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
 
   if (displayMode === 'list') {
     return (
-      <div
-        onClick={handleVideoClick}
-        className="flex flex-col sm:flex-row gap-4 p-4 bg-gray-800 rounded-lg hover:bg-gray-700 cursor-pointer transition-colors"
-      >
+      <article className="relative flex flex-col sm:flex-row gap-4 p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors focus-within:ring-2 focus-within:ring-red-500">
         <div className="relative shrink-0">
+          {/*
+            next/image를 쓰지 않는다. YouTube 썸네일은 i.ytimg.com CDN이 이미
+            최적화해 내보내는 고정 크기 이미지라, Vercel 이미지 최적화를 거치면
+            비용과 지연만 늘고 얻는 게 없다.
+          */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={video.thumbnailUrl}
             alt={video.title}
@@ -74,7 +75,20 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
         </div>
 
         <div className="flex-1 min-w-0">
-          <h3 className="text-lg font-semibold text-white mb-2 line-clamp-2">{video.title}</h3>
+          {/*
+            카드 전체를 클릭 가능하게 하되 초점 대상은 이 링크 하나만 둔다.
+            div+onClick은 키보드로 도달할 수 없다.
+          */}
+          <h3 className="text-lg font-semibold text-white mb-2 line-clamp-2">
+            <a
+              href={watchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="after:absolute after:inset-0 focus:outline-none"
+            >
+              {video.title}
+            </a>
+          </h3>
 
           <p className="text-gray-300 text-sm mb-3 line-clamp-2">
             {truncateText(video.description, 150)}
@@ -95,23 +109,25 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
           <div className="flex items-center justify-between gap-2 mt-3">
             {performanceBadge}
 
-            <CopyButton
-              getText={analysisPrompt}
-              label="AI분석 복사"
-              title="대조군을 포함한 분석 프롬프트를 복사합니다"
-            />
+            {/* 링크 오버레이 위로 올려야 눌린다 */}
+            <div className="relative z-10">
+              <CopyButton
+                getText={analysisPrompt}
+                label="AI분석 복사"
+                title="대조군을 포함한 분석 프롬프트를 복사합니다"
+              />
+            </div>
           </div>
         </div>
-      </div>
+      </article>
     );
   }
 
   return (
-    <div
-      onClick={handleVideoClick}
-      className="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 cursor-pointer transition-colors"
-    >
+    <article className="relative bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition-colors focus-within:ring-2 focus-within:ring-red-500">
       <div className="relative">
+        {/* 위와 같은 이유로 next/image를 쓰지 않는다 */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={video.thumbnailUrl} alt={video.title} className="w-full aspect-video object-cover" />
         <div className="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
           {duration}
@@ -130,7 +146,14 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
 
       <div className="p-4">
         <h3 className="text-white font-semibold mb-2 line-clamp-2 text-sm leading-tight">
-          {video.title}
+          <a
+            href={watchUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="after:absolute after:inset-0 focus:outline-none"
+          >
+            {video.title}
+          </a>
         </h3>
 
         <div className="text-gray-400 text-xs mb-2">
@@ -149,13 +172,15 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
         <div className="flex justify-between items-center gap-2">
           {performanceBadge}
 
-          <CopyButton
-            getText={analysisPrompt}
-            label="AI분석"
-            title="대조군을 포함한 분석 프롬프트를 복사합니다"
-          />
+          <div className="relative z-10">
+            <CopyButton
+              getText={analysisPrompt}
+              label="AI분석"
+              title="대조군을 포함한 분석 프롬프트를 복사합니다"
+            />
+          </div>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
