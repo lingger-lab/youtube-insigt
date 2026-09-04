@@ -5,7 +5,9 @@ import { VideoData, SearchFilters, searchYouTube } from './utils/youtubeApi';
 import type { SearchDepth, SearchUsage } from '../types/youtube';
 import { filterVideosByType } from './utils/videoUtils';
 import { withMetrics, compareByMetric, type SortKey } from './utils/metrics';
+import { selectCohort, buildMarketAnalysisPrompt } from './utils/analysisPrompt';
 import SearchDepthPicker from './components/SearchDepthPicker';
+import CopyButton from './components/CopyButton';
 import Header from './components/Header';
 import Sidebar, { MobileNavDrawer, type VideoFilter } from './components/Sidebar';
 import SearchInput from './components/SearchInput';
@@ -52,6 +54,10 @@ export default function Home() {
     () => [...filteredVideos].sort((a, b) => compareByMetric(a, b, sortBy, sortOrder)),
     [filteredVideos, sortBy, sortOrder],
   );
+
+  // 대조군은 정렬 방식과 무관하게 성과배수 기준으로 뽑는다.
+  // 잘된 영상만 보고 성공 요인을 지목하면, 같은 방식으로 하고 묻힌 영상이 보이지 않는다.
+  const cohort = useMemo(() => selectCohort(filteredVideos), [filteredVideos]);
 
   const handleSearch = async (term: string) => {
     setIsLoading(true);
@@ -190,16 +196,45 @@ export default function Home() {
           {sortedVideos.length > 0 && (
             <>
               {/* Current Filter Display */}
-              <div className="flex items-center gap-4 mb-4">
-                <h2 className="text-2xl font-bold">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
+                <h2 className="text-xl sm:text-2xl font-bold">
                   {videoFilter === 'home' && '모든 영상'}
                   {videoFilter === 'shorts' && 'Shorts (3분 이하)'}
                   {videoFilter === 'long' && 'Long Videos (3분 초과)'}
                 </h2>
                 <span className="text-gray-400 text-sm">
-                  "{searchTerm}" 검색 결과
+                  &ldquo;{searchTerm}&rdquo; 검색 결과
                 </span>
               </div>
+
+              {/*
+                상위군 vs 하위군 비교. 이 도구에서 가장 값이 큰 출력이라 주 동작으로 둔다.
+                영상 하나만 분석하면 사후 서사밖에 안 나오지만, 같은 검색어의 두 집단을
+                비교하면 셀 수 있는 진술이 나온다.
+              */}
+              {cohort.top.length > 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-6 p-4 bg-gray-800 rounded-lg border border-gray-700">
+                  <div className="min-w-0">
+                    <h3 className="text-white font-semibold">키워드 시장 분석</h3>
+                    <p className="text-sm text-gray-400 mt-0.5">
+                      성과배수 상위 <span className="tabular-nums">{cohort.top.length}</span>건과 하위{' '}
+                      <span className="tabular-nums">{cohort.bottom.length}</span>건을 대조군으로 묶어
+                      LLM에 붙여넣을 프롬프트를 만듭니다.
+                    </p>
+                  </div>
+                  <CopyButton
+                    getText={() => buildMarketAnalysisPrompt(searchTerm, cohort)}
+                    label="시장 분석 복사"
+                    variant="primary"
+                    title="상위군·하위군 비교 프롬프트를 복사합니다"
+                  />
+                </div>
+              ) : (
+                <div className="mb-6 p-4 bg-gray-800 rounded-lg border border-gray-700 text-sm text-gray-400">
+                  성과배수를 계산할 수 있는 영상이 둘 이상 있어야 상위군·하위군 비교가 가능합니다.
+                  검색 깊이를 늘리거나 다른 키워드를 시도해 보세요.
+                </div>
+              )}
 
               {/* Sort Controls */}
               <SortBar 
@@ -218,11 +253,13 @@ export default function Home() {
                   ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'
                   : 'space-y-4'
               }>
-                {sortedVideos.map((video, index) => (
-                  <VideoCard 
-                    key={`${video.id}-${index}`} 
-                    video={video} 
+                {sortedVideos.map((video) => (
+                  <VideoCard
+                    key={video.id}
+                    video={video}
                     displayMode={displayMode}
+                    cohort={cohort}
+                    searchTerm={searchTerm}
                   />
                 ))}
               </div>

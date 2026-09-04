@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import type { VideoWithMetrics } from '../../types/youtube';
 import {
   formatViewCount,
@@ -11,18 +10,19 @@ import {
   truncateText,
   isOutperforming,
 } from '../utils/helpers';
-import { formatDuration, isShorts, getVideoDurationInSeconds } from '../utils/videoUtils';
+import { formatDuration, isShorts } from '../utils/videoUtils';
+import { buildSingleVideoPrompt, type Cohort } from '../utils/analysisPrompt';
+import CopyButton from './CopyButton';
 
 interface VideoCardProps {
   video: VideoWithMetrics;
   displayMode: 'grid' | 'list';
+  /** 같은 검색 결과에서 뽑은 대조군. 단일 사례로는 인과를 가릴 수 없다. */
+  cohort: Cohort;
+  searchTerm: string;
 }
 
-type CopyState = 'idle' | 'copied' | 'failed';
-
-export default function VideoCard({ video, displayMode }: VideoCardProps) {
-  const [copyState, setCopyState] = useState<CopyState>('idle');
-
+export default function VideoCard({ video, displayMode, cohort, searchTerm }: VideoCardProps) {
   const { metrics } = video;
   const outperforming = isOutperforming(metrics.performanceMultiple);
   const isShortVideo = isShorts(video.duration);
@@ -32,95 +32,7 @@ export default function VideoCard({ video, displayMode }: VideoCardProps) {
     window.open(`https://www.youtube.com/watch?v=${video.id}`, '_blank');
   };
 
-  const handleCopyAnalysisPrompt = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-
-    const durationInSeconds = getVideoDurationInSeconds(video.duration);
-    const durationInMinutes = Math.max(1, Math.round(durationInSeconds / 60));
-    const videoLengthHint = durationInSeconds > 0 ? `${durationInMinutes}분` : '6분';
-
-    const prompt = `# 📌 전제조건: 내 주제 설정
-**"내가 적용할 주제는 무엇인가요?"**
-
-아래 분석을 시작하기 전에, 먼저 당신의 주제/분야를 명확히 입력해 주세요.
-
-**👇 여기에 당신의 주제를 입력하세요:**
-\`\`\`
-[여기에 내 주제 입력]
-\`\`\`
-
----
-
-# 영상 분석 대상
-- **제목**: ${video.title}
-- **채널**: ${video.channelTitle}
-- **조회수**: ${formatViewCount(video.viewCount)}
-- **구독자수**: ${formatSubscriberCount(video.channel.subscriberCount)}
-- **성과배수(채널 평소 대비)**: ${formatMultiple(metrics.performanceMultiple)}
-- **좋아요율**: ${formatPercent(metrics.likeRate)}
-- **업로드**: ${formatPublishedDate(video.publishedAt)}
-- **링크**: https://www.youtube.com/watch?v=${video.id}
-
----
-
-## 1) 클릭을 부르는 심리적 트리거 분석
-- 대상 영상에서 작동한 핵심 트리거 TOP5를 뽑고, 각 트리거를 **내 주제**에 맞게 재해석하세요.
-- 트리거 후보: 호기심/갭, 새로운 것/의외성, 숫자·구체성, 사회적 증거·권위, 손실회피, 희소성·긴급성, 자기정체성, 논쟁성, 전·후 대비, 감정(경외/유머/분노) 등.
-- 형식:
-  - 트리거명 / 대상영상 증거 1줄 / 내 주제 적용 카피 1줄 / 기대효과 1줄
-
-## 2) 내 주제에 맞춘 썸네일/제목 5개 추천 (세트 제안)
-- 5세트 = {직설형, 호기심형, 숫자형, 반전형, 권위/사회적증거형}.
-- 각 세트에 아래 항목을 포함:
-  - 제목(60자 이내, 키워드 선두 배치)
-  - 썸네일_텍스트(최대 4단어), 썸네일_구성(피사체/앵글/대비/여백), 추천요소(아이콘·인물·표정)
-  - 배경/색 대비(라이트/다크/고대비 중), 금지요소(작은 글자, 저해상도 등)
-  - 왜 클릭되는지 + 기대 KPI(CTR/AVD/완시율 중)
-
-## 3) 시청지속 시간을 위한 대본 구조 설계
-- 총 길이 가정: ${videoLengthHint}
-- 초반 10초 내 훅 3안 → 최적안 1개 추천.
-- 타임라인(초 단위)로 제시:
-  - HOOK(0~5s): [대사/자막], 시각 컷, 사운드 제안
-  - 전개(5~45s): 문제정의→약속→자격부여(왜 나인가)
-  - 본론 파트(시간블럭별): 핵심 포인트, B-roll/오버레이, 패턴인터럽트, 오픈루프 배치
-  - 클라이맥스/증거 제시: 데이터·전/후 비교
-  - 마무리 & CTA(구독/다음편 티저)
-- 스크립트 톤&보이스 가이드 3줄, 금지 리스트 3개(클릭베이트 과장 등).
-
-## 4) 벤치마킹-적용 매핑표
-- 원본 요소 → 내 영상 적용 방식 → 기대 KPI
-
-## 5) 최종 복사용 요약
-- 제목만 리스트(5개)
-- 썸네일 텍스트만 리스트(5개)
-- 1문장 전략 요약(TL;DR)
-
-# 작성 규칙
-- 원문을 그대로 재탕하지 말고, **의도/원리**를 추출해 재조합.
-- 수치/구체성 선호. 과장/허위 금지.
-- 출력은 **Markdown**으로.
-- **위 데이터에 없는 항목은 추측하지 말고 "데이터 없음"이라고 명시할 것.**`;
-
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setCopyState('copied');
-    } catch {
-      setCopyState('failed');
-    }
-    setTimeout(() => setCopyState('idle'), 1800);
-  };
-
-  const copyLabel = copyState === 'copied' ? '복사됨' : copyState === 'failed' ? '복사 실패' : null;
-
-  const copyButtonClass = (base: string) =>
-    `${base} text-white text-xs font-medium rounded-md transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-800 focus-visible:ring-purple-400 ${
-      copyState === 'copied'
-        ? 'bg-emerald-600'
-        : copyState === 'failed'
-          ? 'bg-red-700'
-          : 'bg-purple-600 hover:bg-purple-700'
-    }`;
+  const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm);
 
   /** 채널 평소 대비 성과. 측정 불가는 숫자로 위장하지 않고 그대로 표시한다. */
   const performanceBadge = (
@@ -183,14 +95,11 @@ export default function VideoCard({ video, displayMode }: VideoCardProps) {
           <div className="flex items-center justify-between gap-2 mt-3">
             {performanceBadge}
 
-            <button
-              type="button"
-              onClick={handleCopyAnalysisPrompt}
-              className={copyButtonClass('px-3 py-1.5')}
-              title="AI 전략기획 분석 프롬프트 복사"
-            >
-              {copyLabel ?? 'AI분석복사'}
-            </button>
+            <CopyButton
+              getText={analysisPrompt}
+              label="AI분석 복사"
+              title="대조군을 포함한 분석 프롬프트를 복사합니다"
+            />
           </div>
         </div>
       </div>
@@ -240,14 +149,11 @@ export default function VideoCard({ video, displayMode }: VideoCardProps) {
         <div className="flex justify-between items-center gap-2">
           {performanceBadge}
 
-          <button
-            type="button"
-            onClick={handleCopyAnalysisPrompt}
-            className={copyButtonClass('px-2 py-1')}
-            title="AI 전략기획 분석 프롬프트 복사"
-          >
-            {copyLabel ?? 'AI분석'}
-          </button>
+          <CopyButton
+            getText={analysisPrompt}
+            label="AI분석"
+            title="대조군을 포함한 분석 프롬프트를 복사합니다"
+          />
         </div>
       </div>
     </div>
