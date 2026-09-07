@@ -127,10 +127,11 @@ describe('searchYouTube — 호출 구조', () => {
     assert.equal(stats.calls, 9);
   });
 
-  test('할당량은 search.list가 대부분을 차지한다', async () => {
+  test('검색 버킷과 공용 버킷을 따로 센다', async () => {
     installFetch({ totalVideos: 200, channelCount: 10 });
     const { stats } = await searchYouTube('테스트', FILTERS, 200);
-    assert.equal(stats.quotaUnits, 4 * 100 + 4 * 1 + 1 * 1); // 405
+    assert.equal(stats.searchCalls, 4); // 전용 버킷: 하루 100회 중 4회
+    assert.equal(stats.otherUnits, 4 + 1); // 공용 버킷: videos 4 + channels 1
   });
 
   test('50개 검색은 각 1회씩만 부른다', async () => {
@@ -138,7 +139,8 @@ describe('searchYouTube — 호출 구조', () => {
     const { videos, stats } = await searchYouTube('테스트', FILTERS, 50);
     assert.equal(videos.length, 50);
     assert.equal(stats.calls, 3);
-    assert.equal(stats.quotaUnits, 102);
+    assert.equal(stats.searchCalls, 1);
+    assert.equal(stats.otherUnits, 2);
   });
 
   test('채널이 50개를 넘으면 channels.list를 나눠 부른다', async () => {

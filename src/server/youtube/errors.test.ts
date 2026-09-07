@@ -14,6 +14,19 @@ describe('classifyHttpError', () => {
     assert.equal(error.retryable, false);
   });
 
+  // 2026-06-01부터 search.list는 전용 버킷(하루 100회)이다. 이 앱의 실질 상한이므로
+  // 공용 버킷 소진과 구분해 알려야 사용자가 원인을 안다.
+  test('search 엔드포인트의 할당량 소진은 검색 전용 버킷으로 분류한다', () => {
+    const error = classifyHttpError(403, errorBody('quotaExceeded'), 'search');
+    assert.equal(error.code, 'SEARCH_QUOTA_EXCEEDED');
+    assert.equal(error.retryable, false);
+    assert.ok(error.userMessage.includes('검색 한도'));
+  });
+
+  test('videos 엔드포인트의 할당량 소진은 공용 버킷이다', () => {
+    assert.equal(classifyHttpError(403, errorBody('quotaExceeded'), 'videos').code, 'QUOTA_EXCEEDED');
+  });
+
   test('dailyLimitExceeded도 할당량 소진으로 본다', () => {
     assert.equal(classifyHttpError(403, errorBody('dailyLimitExceeded')).code, 'QUOTA_EXCEEDED');
   });

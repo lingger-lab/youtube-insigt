@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     const { videos, stats } = await searchYouTube(term, filters, maxResults);
     return NextResponse.json({
       videos,
-      usage: { calls: stats.calls, quotaUnits: stats.quotaUnits },
+      usage: { searchCalls: stats.searchCalls, otherUnits: stats.otherUnits, calls: stats.calls },
     });
   } catch (error) {
     if (error instanceof YouTubeApiError) {

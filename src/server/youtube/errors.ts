@@ -3,13 +3,14 @@
  *
  * 분류의 목적은 두 가지다.
  * 1. 재시도해도 되는 실패(429/5xx/타임아웃)와 재시도가 무의미한 실패(4xx)를 가른다.
- * 2. 할당량 소진을 다른 실패에 섞이지 않게 드러낸다. 하루 한도가 24회 검색밖에
- *    안 되므로, 소진을 조용히 빈 결과로 넘기면 사용자는 "검색 결과가 없다"로
+ * 2. 할당량 소진을 다른 실패에 섞이지 않게 드러낸다. 검색은 하루 100회가 상한이라
+ *    소진을 조용히 빈 결과로 넘기면 사용자는 "검색 결과가 없다"로
  *    오해한다.
  */
 export type YouTubeErrorCode =
   | 'CONFIG_MISSING'
   | 'QUOTA_EXCEEDED'
+  | 'SEARCH_QUOTA_EXCEEDED'
   | 'API_KEY_INVALID'
   | 'BAD_REQUEST'
   | 'RATE_LIMITED'
@@ -23,7 +24,10 @@ const USER_MESSAGE: Record<YouTubeErrorCode, string> = {
   // 할당량은 태평양 시간 자정에 초기화된다. 서머타임 때문에 한국 시간으로는
   // 오후 4시(PDT)와 오후 5시(PST) 사이에서 움직이므로 범위로 안내한다.
   QUOTA_EXCEEDED:
-    'YouTube API 일일 할당량을 모두 사용했습니다. 한국 시간 기준 오후 4~5시경에 초기화됩니다.',
+    'YouTube API 일일 할당량(공용 버킷)을 모두 사용했습니다. 한국 시간 기준 오후 4~5시경에 초기화됩니다.',
+  // search.list는 2026-06-01부터 전용 버킷(하루 100회)이다. 이 앱의 실질 상한이라 따로 알린다.
+  SEARCH_QUOTA_EXCEEDED:
+    '오늘의 검색 한도(100회)를 모두 사용했습니다. 한국 시간 기준 오후 4~5시경에 초기화됩니다.',
   API_KEY_INVALID: 'YouTube API 키가 유효하지 않거나 권한이 없습니다.',
   BAD_REQUEST: '검색 조건이 올바르지 않습니다.',
   RATE_LIMITED: 'YouTube API 요청이 일시적으로 제한되었습니다. 잠시 후 다시 시도해 주세요.',
@@ -75,12 +79,14 @@ function extractReason(body: unknown): string {
  * quotaExceeded / dailyLimitExceeded 는 재시도해도 소용없고, 사용자에게
  * 명시적으로 알려야 하는 유일한 실패다.
  */
-export function classifyHttpError(status: number, body: unknown): YouTubeApiError {
+export function classifyHttpError(status: number, body: unknown, endpoint?: string): YouTubeApiError {
   const reason = extractReason(body);
 
   if (status === 403) {
     if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') {
-      return new YouTubeApiError('QUOTA_EXCEEDED', `할당량 소진 (reason=${reason})`, 429);
+      // 응답 본문은 어느 버킷인지 말해주지 않는다. 어느 엔드포인트가 막혔는지로 가른다.
+      const code = endpoint === 'search' ? 'SEARCH_QUOTA_EXCEEDED' : 'QUOTA_EXCEEDED';
+      return new YouTubeApiError(code, `할당량 소진 (endpoint=${endpoint ?? '?'}, reason=${reason})`, 429);
     }
     if (reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded') {
       return new YouTubeApiError('RATE_LIMITED', `요청 제한 (reason=${reason})`, 429);

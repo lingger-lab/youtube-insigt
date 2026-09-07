@@ -82,10 +82,20 @@ export interface VideoMetrics {
 
 export type VideoWithMetrics = VideoData & { metrics: VideoMetrics };
 
-/** 한 번의 검색이 실제로 쓴 호출 수와 할당량. UI에 노출해 소진을 예측 가능하게 한다. */
+/**
+ * 한 번의 검색이 실제로 쓴 할당량. UI에 노출해 소진을 예측 가능하게 한다.
+ *
+ * 2026-06-01부터 할당량 버킷이 둘로 갈렸다. search.list는 전용 버킷(하루 100회,
+ * 호출당 1)이고 나머지 메서드는 공용 버킷(하루 10,000 units)이다. 둘은 서로
+ * 경쟁하지 않으므로 한 숫자로 합치면 의미가 없어진다.
+ */
 export interface SearchUsage {
+  /** search.list 호출 수 — 전용 버킷. 이 앱의 실질 상한이다. */
+  searchCalls: number;
+  /** 그 외 메서드(videos·channels…)가 쓴 units — 공용 버킷. */
+  otherUnits: number;
+  /** 총 호출 수 (두 버킷 합) */
   calls: number;
-  quotaUnits: number;
 }
 
 export interface SearchSuccess {

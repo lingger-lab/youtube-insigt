@@ -1,3 +1,4 @@
+import type { SearchUsage } from '../../types/youtube.ts';
 import { YouTubeApiError, classifyHttpError } from './errors.ts';
 
 const API_BASE = 'https://www.googleapis.com/youtube/v3';
@@ -8,25 +9,26 @@ const MAX_RETRIES = 2;
 const BACKOFF_BASE_MS = 400;
 
 /**
- * 엔드포인트별 할당량 단가 (2026-09 기준, 메서드당 정액).
- * search만 100단위로 압도적이라 호출 구조를 짤 때 이 값이 기준이 된다.
+ * 엔드포인트가 속한 할당량 버킷 (2026-06-01 개편 기준).
+ *
+ * search.list는 전용 버킷(하루 100회, 호출당 1)이고 나머지는 공용 버킷
+ * (하루 10,000 units, 호출당 1)이다. 둘은 서로 경쟁하지 않는다. 그래서
+ * videos/channels 호출을 아껴도 검색 횟수는 늘지 않고, 반대로 검색 상한과
+ * 무관하게 부가 호출은 하루 1만 번까지 쓸 수 있다.
  */
-export const QUOTA_COST = {
-  search: 100,
-  videos: 1,
-  channels: 1,
+export const QUOTA_BUCKET = {
+  search: 'search',
+  videos: 'general',
+  channels: 'general',
 } as const;
 
-export type YouTubeEndpoint = keyof typeof QUOTA_COST;
+export type YouTubeEndpoint = keyof typeof QUOTA_BUCKET;
 
-/** 한 번의 검색이 실제로 소비한 호출 수와 할당량. 응답에 실어 사용자에게 보여준다. */
-export interface CallStats {
-  calls: number;
-  quotaUnits: number;
-}
+/** 한 번의 검색이 실제로 소비한 양. 응답에 실어 사용자에게 보여준다. */
+export type CallStats = SearchUsage;
 
 export function createStats(): CallStats {
-  return { calls: 0, quotaUnits: 0 };
+  return { searchCalls: 0, otherUnits: 0, calls: 0 };
 }
 
 /**
@@ -87,7 +89,8 @@ export async function youtubeGet(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     stats.calls += 1;
-    stats.quotaUnits += QUOTA_COST[endpoint];
+    if (QUOTA_BUCKET[endpoint] === 'search') stats.searchCalls += 1;
+    else stats.otherUnits += 1;
 
     let response: Response;
     try {
@@ -114,7 +117,7 @@ export async function youtubeGet(
       }
     }
 
-    lastError = classifyHttpError(response.status, await readErrorBody(response));
+    lastError = classifyHttpError(response.status, await readErrorBody(response), endpoint);
 
     if (!lastError.retryable || attempt === MAX_RETRIES) {
       throw lastError;
