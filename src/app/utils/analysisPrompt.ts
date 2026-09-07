@@ -98,7 +98,7 @@ const TABLE_HEADER = `| # | 제목 | 성과배수 | 조회수 | 길이 | 좋아�
 
 /** 데이터로 확인할 수 없는 것을 매번 명시한다. 숨기면 모델이 채워 넣는다. */
 const DATA_LIMITS = `## 이 데이터에 없는 것 (추측하지 말 것)
-- **썸네일 이미지**: 아래 링크로 직접 열어 이 대화에 첨부하면 그때 분석 가능. 첨부 전에는 썸네일 구성·색·표정에 대해 쓰지 말 것.
+- **썸네일 이미지**: 앱의 "썸네일 시트 복사"로 만든 격자 이미지(각 칸의 #번호 = 아래 표의 행 번호)를 이 대화에 붙여넣거나, 아래 링크를 직접 열어 첨부하면 그때 분석 가능. 첨부 전에는 썸네일 구성·색·표정에 대해 쓰지 말 것.
 - **영상 내용/자막**: YouTube 공식 API는 타인 영상의 자막을 제공하지 않는다(소유자 OAuth 필요). 대본 구조·훅·전개는 자막을 직접 붙여넣기 전까지 분석 대상이 아니다.
 - **시청 지속률·CTR·노출수**: 채널 소유자만 볼 수 있다. 이탈 구간 추정 금지.
 - **알고리즘 노출량**: 조회수에는 추천 노출 효과가 섞여 있고, 그 비중은 알 수 없다.
@@ -112,13 +112,14 @@ const OUTPUT_RULES = `## 작성 규칙
 - 표본 크기를 감안해 단정하지 않는다. 이 표본으로 말할 수 있는 범위를 넘지 않는다.
 - 출력은 Markdown.`;
 
-function thumbnailSection(videos: VideoWithMetrics[], label: string): string {
+/** 번호는 표의 행 번호(startIndex부터)와 같아야 썸네일 시트의 #라벨과 맞는다. */
+function thumbnailSection(videos: VideoWithMetrics[], label: string, startIndex: number): string {
   const links = videos
-    .filter((v) => v.thumbnailHighUrl)
-    .map((v, i) => `${i + 1}. ${v.thumbnailHighUrl}`)
+    .map((v, i) => (v.thumbnailHighUrl ? `#${startIndex + i}. ${v.thumbnailHighUrl}` : null))
+    .filter((line): line is string => line !== null)
     .join('\n');
   if (!links) return '';
-  return `\n## ${label} 썸네일 (직접 열어 첨부하면 분석에 포함됩니다)\n${links}\n`;
+  return `\n## ${label} 썸네일 링크 (시트를 못 붙였을 때 직접 열어 첨부)\n${links}\n`;
 }
 
 /**
@@ -149,7 +150,7 @@ ${TABLE_HEADER}
 ${tableRows(bottom, bottomStart)}
 
 ${DATA_LIMITS}
-${thumbnailSection(top, '상위군')}
+${thumbnailSection(top, '상위군', 1)}${thumbnailSection(bottom, '하위군', bottomStart)}
 ## 요청
 1. **제목 언어의 차이**: 상위군에만 반복되는 표현/구조 패턴을 찾고, 각 패턴이 상위군 몇 건·하위군 몇 건에 나타나는지 세어 표로 제시.
 2. **길이 분포**: 두 군의 영상 길이에 차이가 있는지. 있으면 구간별로, 없으면 "차이 없음".
@@ -200,7 +201,7 @@ ${tableRows(contrast, 1)}
 ${contrastSection}
 
 ${DATA_LIMITS}
-${thumbnailSection([video], '대상 영상')}
+${thumbnailSection([video], '대상 영상', 1)}
 ## 요청
 1. **제목 분석**: 대상 영상의 제목이 대조군 제목들과 구조적으로 무엇이 다른지. 다르지 않으면 "차이 없음".
 2. **관찰 가능한 성과 신호**: 성과배수·좋아요율·댓글율·일평균 조회수에서 읽을 수 있는 것. 각 수치가 무엇을 시사하고 무엇을 시사하지 **않는지** 함께.

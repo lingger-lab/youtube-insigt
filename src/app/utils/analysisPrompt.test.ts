@@ -142,11 +142,21 @@ describe('프롬프트가 지어내기를 허가하지 않는다', () => {
     }
   });
 
-  test('썸네일은 URL이 아니라 직접 첨부하도록 안내한다', () => {
+  test('썸네일은 URL이 아니라 시트 붙여넣기 또는 직접 첨부로 안내한다', () => {
     for (const p of prompts) {
+      assert.ok(p.includes('썸네일 시트 복사'));
       assert.ok(p.includes('직접 열어'));
       assert.ok(p.includes('maxresdefault'));
     }
+  });
+
+  // 시트의 #라벨과 표의 행 번호가 어긋나면 LLM이 엉뚱한 썸네일을 본다.
+  test('시장 분석의 썸네일 번호는 하위군에서 상위군 뒤부터 이어진다', () => {
+    const p = buildMarketAnalysisPrompt('키워드', selectCohort(makeSet(20), 5));
+    assert.ok(p.includes('#1. https://i.ytimg.com/vi/v0/'));
+    assert.ok(p.includes('## 하위군 썸네일'));
+    assert.ok(p.includes('#6. https://i.ytimg.com/vi/'));
+    assert.equal(p.includes('#11.'), false);
   });
 });
 

@@ -8,6 +8,7 @@ import { withMetrics, compareByMetric, type SortKey } from './utils/metrics';
 import { selectCohort, buildMarketAnalysisPrompt } from './utils/analysisPrompt';
 import SearchDepthPicker from './components/SearchDepthPicker';
 import CopyButton from './components/CopyButton';
+import ThumbnailSheetButton from './components/ThumbnailSheetButton';
 import Header from './components/Header';
 import Sidebar, { MobileNavDrawer, type VideoFilter } from './components/Sidebar';
 import SearchInput from './components/SearchInput';
@@ -248,12 +249,22 @@ export default function Home() {
                       LLM에 붙여넣을 프롬프트를 만듭니다.
                     </p>
                   </div>
-                  <CopyButton
-                    getText={() => buildMarketAnalysisPrompt(searchTerm, cohort)}
-                    label="시장 분석 복사"
-                    variant="primary"
-                    title="상위군·하위군 비교 프롬프트를 복사합니다"
-                  />
+                  <div className="flex flex-wrap gap-2">
+                    <CopyButton
+                      getText={() => buildMarketAnalysisPrompt(searchTerm, cohort)}
+                      label="시장 분석 복사"
+                      variant="primary"
+                      title="상위군·하위군 비교 프롬프트를 복사합니다"
+                    />
+                    {/* 시트의 #번호 = 프롬프트 표의 행 번호. 상위군 1..N, 하위군 N+1.. */}
+                    <ThumbnailSheetButton
+                      items={[...cohort.top, ...cohort.bottom].map((v, i) => ({
+                        videoId: v.id,
+                        label: `#${i + 1}`,
+                      }))}
+                      filename={`thumbnails-${searchTerm.replace(/[^\w가-힣]+/g, '_').slice(0, 40) || 'sheet'}.png`}
+                    />
+                  </div>
                 </div>
               ) : (
                 <div className="mb-6 p-4 bg-gray-800 rounded-lg border border-gray-700 text-sm text-gray-400">
