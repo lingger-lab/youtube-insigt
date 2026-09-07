@@ -36,10 +36,6 @@ function percentile(sorted: number[], p: number): number | null {
   return sorted[idx];
 }
 
-function pct(n: number, d: number): string {
-  return d === 0 ? '—' : `${((n / d) * 100).toFixed(0)}% (${n}/${d})`;
-}
-
 function fmt(n: number | null, digits = 2): string {
   return n === null ? '—' : n.toFixed(digits);
 }
