@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --test \"src/**/*.test.ts\"",
+    "measure": "node --env-file=.env.local scripts/measure.ts",
     "test:coverage": "node --test --experimental-test-coverage \"src/**/*.test.ts\""
   },
   "dependencies": {

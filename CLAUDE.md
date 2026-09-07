@@ -11,6 +11,7 @@ npm test           # node --test (타입 스트리핑, 도구 추가 없음)
 npm run lint       # eslint
 npm run build      # 프로덕션 빌드
 node node_modules/typescript/bin/tsc --noEmit   # 타입 검사
+npm run measure -- "키워드" ...                 # 실측 (키워드당 검색 1회 소비). 키 확보 후 최우선
 ```
 
 > `npx tsc`는 쓰지 말 것. npm 레지스트리의 무관한 `tsc` 패키지가 잡힌다.
