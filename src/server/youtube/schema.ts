@@ -73,10 +73,26 @@ export const ChannelItemSchema = z.object({
       videoCount: z.string().optional(),
     })
     .optional(),
+  contentDetails: z
+    .object({
+      relatedPlaylists: z.object({ uploads: z.string().optional() }).optional(),
+    })
+    .optional(),
 });
 
 export const ChannelListResponseSchema = z.object({
   items: z.array(ChannelItemSchema).optional(),
+});
+
+/** playlistItems.list — part=contentDetails 로 videoId만 받는다. */
+export const PlaylistItemsResponseSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        contentDetails: z.object({ videoId: z.string().optional() }).optional(),
+      }),
+    )
+    .optional(),
 });
 
 /** 검증 실패를 MALFORMED_RESPONSE로 바꿔 던진다. 부분 성공으로 위장하지 않는다. */

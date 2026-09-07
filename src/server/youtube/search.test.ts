@@ -13,8 +13,22 @@ let calls: { endpoint: string; params: URLSearchParams }[] = [];
 const realFetch = globalThis.fetch;
 
 /** 검색 결과 총 개수와 채널 수를 바꿔가며 응답을 만든다. */
-function installFetch(options: { totalVideos: number; channelCount: number; hiddenChannels?: Set<string> }) {
-  const { totalVideos, channelCount, hiddenChannels = new Set<string>() } = options;
+function installFetch(options: {
+  totalVideos: number;
+  channelCount: number;
+  hiddenChannels?: Set<string>;
+  /** 채널당 최근 업로드 편수 (기본 50) */
+  uploadsPerChannel?: number;
+  /** 404 playlistNotFound 를 돌려줄 재생목록 ID */
+  missingPlaylists?: Set<string>;
+}) {
+  const {
+    totalVideos,
+    channelCount,
+    hiddenChannels = new Set<string>(),
+    uploadsPerChannel = 50,
+    missingPlaylists = new Set<string>(),
+  } = options;
 
   globalThis.fetch = (async (url: string | URL) => {
     const parsed = new URL(String(url));
@@ -35,9 +49,43 @@ function installFetch(options: { totalVideos: number; channelCount: number; hidd
       });
     }
 
+    if (endpoint === 'playlistItems') {
+      const playlistId = params.get('playlistId') ?? '';
+      assert.equal(params.get('part'), 'contentDetails');
+      if (missingPlaylists.has(playlistId)) {
+        return new Response(
+          JSON.stringify({ error: { code: 404, errors: [{ reason: 'playlistNotFound' }] } }),
+          { status: 404 },
+        );
+      }
+      // 재생목록 UU<ch> 의 최근 업로드 uploadsPerChannel 편: 'u<ch>x<i>'
+      const ch = playlistId.replace(/^UU/, '');
+      return jsonResponse({
+        items: Array.from({ length: uploadsPerChannel }, (_, i) => ({
+          contentDetails: { videoId: `u${ch}x${i}` },
+        })),
+      });
+    }
+
     if (endpoint === 'videos') {
       const ids = (params.get('id') ?? '').split(',').filter(Boolean);
       assert.ok(ids.length <= 50, `videos.list에 ${ids.length}개를 한 번에 요청했다 (상한 50)`);
+
+      // 채널 업로드 상세: 짝수는 Shorts(1분), 홀수는 롱폼(10분). 조회수는 인덱스 기반.
+      if (ids[0]?.startsWith('u')) {
+        return jsonResponse({
+          items: ids.map((id) => {
+            const i = Number(id.split('x')[1]);
+            return {
+              id,
+              snippet: { publishedAt: '2026-07-01T00:00:00Z' },
+              statistics: { viewCount: String(i % 2 === 0 ? 5_000 + i : 50_000 + i * 100) },
+              contentDetails: { duration: i % 2 === 0 ? 'PT1M' : 'PT10M' },
+            };
+          }),
+        });
+      }
+
       return jsonResponse({
         items: ids.map((id) => {
           const n = Number(id.slice(1));
@@ -73,6 +121,7 @@ function installFetch(options: { totalVideos: number; channelCount: number; hidd
     if (endpoint === 'channels') {
       const ids = (params.get('id') ?? '').split(',').filter(Boolean);
       assert.ok(ids.length <= 50, `channels.list에 ${ids.length}개를 한 번에 요청했다 (상한 50)`);
+      assert.ok((params.get('part') ?? '').includes('contentDetails'), 'uploads 재생목록 ID를 요청해야 한다');
       return jsonResponse({
         items: ids.map((id) => {
           const hidden = hiddenChannels.has(id);
@@ -84,6 +133,7 @@ function installFetch(options: { totalVideos: number; channelCount: number; hidd
               hiddenSubscriberCount: hidden,
               ...(hidden ? {} : { subscriberCount: '50000' }),
             },
+            contentDetails: { relatedPlaylists: { uploads: `UU${id}` } },
           };
         }),
       });
@@ -114,33 +164,34 @@ afterEach(() => {
 });
 
 describe('searchYouTube — 호출 구조', () => {
-  test('200개 검색: search 4회 + videos 4회 + channels 1회', async () => {
+  test('200개 검색: search 4 + videos 4 + channels 1 + 채널별 업로드(10채널 x 2)', async () => {
     installFetch({ totalVideos: 200, channelCount: 10 });
     const { videos, stats } = await searchYouTube('테스트', FILTERS, 200);
 
     assert.equal(videos.length, 200);
     assert.equal(countBy('search'), 4);
-    // 페이지마다 부르지 않고 200개를 50개씩 나눠 부른다
-    assert.equal(countBy('videos'), 4);
-    // 고유 채널 10개뿐이므로 한 번이면 된다 (예전에는 페이지마다 4번 불렀다)
+    // 검색 결과 200개는 50개씩 4회, 채널 10개의 업로드 상세는 채널당 1회
+    assert.equal(countBy('videos'), 4 + 10);
+    // 고유 채널 10개뿐이므로 channels.list는 한 번이면 된다
     assert.equal(countBy('channels'), 1);
-    assert.equal(stats.calls, 9);
+    assert.equal(countBy('playlistItems'), 10);
+    assert.equal(stats.calls, 4 + 4 + 1 + 10 + 10);
   });
 
   test('검색 버킷과 공용 버킷을 따로 센다', async () => {
     installFetch({ totalVideos: 200, channelCount: 10 });
     const { stats } = await searchYouTube('테스트', FILTERS, 200);
     assert.equal(stats.searchCalls, 4); // 전용 버킷: 하루 100회 중 4회
-    assert.equal(stats.otherUnits, 4 + 1); // 공용 버킷: videos 4 + channels 1
+    assert.equal(stats.otherUnits, 4 + 1 + 10 * 2); // videos 4 + channels 1 + 채널별 2
   });
 
-  test('50개 검색은 각 1회씩만 부른다', async () => {
+  test('50개 검색(채널 5): search 1 + videos 1 + channels 1 + 업로드 5x2', async () => {
     installFetch({ totalVideos: 50, channelCount: 5 });
     const { videos, stats } = await searchYouTube('테스트', FILTERS, 50);
     assert.equal(videos.length, 50);
-    assert.equal(stats.calls, 3);
+    assert.equal(stats.calls, 3 + 10);
     assert.equal(stats.searchCalls, 1);
-    assert.equal(stats.otherUnits, 2);
+    assert.equal(stats.otherUnits, 2 + 10);
   });
 
   test('채널이 50개를 넘으면 channels.list를 나눠 부른다', async () => {
@@ -155,6 +206,7 @@ describe('searchYouTube — 호출 구조', () => {
     assert.equal(videos.length, 0);
     assert.equal(countBy('videos'), 0);
     assert.equal(countBy('channels'), 0);
+    assert.equal(countBy('playlistItems'), 0);
   });
 
   test('요청한 개수보다 결과가 적으면 있는 만큼만 돌려준다', async () => {
@@ -228,6 +280,53 @@ describe('searchYouTube — 필드 매핑', () => {
       ['v0', 'v1', 'v2', 'v3', 'v4'],
     );
     assert.equal(videos[119].id, 'v119');
+  });
+});
+
+describe('searchYouTube — 채널 최근 업로드', () => {
+  test('채널마다 최근 업로드 목록을 붙인다 (조회수·길이·업로드일)', async () => {
+    installFetch({ totalVideos: 2, channelCount: 1, uploadsPerChannel: 6 });
+    const { videos } = await searchYouTube('테스트', FILTERS, 50);
+    const uploads = videos[0].channel.recentUploads;
+    assert.ok(uploads && uploads.length === 6);
+    assert.equal(uploads[1].duration, 'PT10M');
+    assert.equal(uploads[1].viewCount, 50_100);
+    assert.equal(uploads[0].duration, 'PT1M');
+    assert.equal(videos[0].channel.uploadsPlaylistId, 'UUc0');
+  });
+
+  // 재생목록이 없는 채널 하나 때문에 검색 전체가 실패하면 안 된다.
+  // 대신 null로 남겨 metrics가 열등한 기준선으로 내려갔음을 드러낸다.
+  test('업로드 재생목록이 없는 채널(404)은 null로 두고 계속 진행한다', async () => {
+    installFetch({ totalVideos: 4, channelCount: 2, missingPlaylists: new Set(['UUc1']) });
+    const { videos } = await searchYouTube('테스트', FILTERS, 50);
+    const c0 = videos.find((v) => v.channelId === 'c0')!;
+    const c1 = videos.find((v) => v.channelId === 'c1')!;
+    assert.ok(Array.isArray(c0.channel.recentUploads));
+    assert.equal(c1.channel.recentUploads, null);
+  });
+
+  test('업로드가 0편인 채널은 null이 아니라 빈 배열이다', async () => {
+    installFetch({ totalVideos: 1, channelCount: 1, uploadsPerChannel: 0 });
+    const { videos } = await searchYouTube('테스트', FILTERS, 50);
+    assert.deepEqual(videos[0].channel.recentUploads, []);
+    // 목록이 비면 상세 조회를 하지 않는다 (videos.list 는 검색 결과 1회뿐)
+    assert.equal(countBy('videos'), 1);
+  });
+
+  test('업로드 조회 중 할당량 소진은 삼키지 않고 던진다', async () => {
+    installFetch({ totalVideos: 1, channelCount: 1 });
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      if (String(url).includes('/playlistItems')) {
+        return new Response(
+          JSON.stringify({ error: { code: 403, errors: [{ reason: 'quotaExceeded' }] } }),
+          { status: 403 },
+        );
+      }
+      return inner(url, init);
+    }) as typeof fetch;
+    await assert.rejects(() => searchYouTube('테스트', FILTERS, 50), /할당량 소진/);
   });
 });
 

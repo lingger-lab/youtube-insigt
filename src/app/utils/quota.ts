@@ -39,7 +39,8 @@ export function estimateQuota(depth: number): QuotaEstimate {
   const pages = Math.max(1, Math.ceil(depth / PAGE_SIZE));
   const searchCalls = pages;
   // videos.list 50개씩 pages회 + channels.list 최대 pages회
-  const otherUnits = pages * 2;
+  // + 채널마다 최근 업로드 2 units (playlistItems 1 + videos 1). 최악은 결과마다 다른 채널.
+  const otherUnits = pages * 2 + depth * 2;
   return {
     searchCalls,
     otherUnits,

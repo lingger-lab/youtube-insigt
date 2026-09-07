@@ -6,18 +6,20 @@ describe('estimateQuota (2026-06-01 버킷 분리 기준)', () => {
   // README와 UI에 그대로 노출되는 숫자다. 조용히 어긋나면 사용자가
   // 하루에 몇 번 쓸 수 있는지 잘못 알게 된다.
   test('검색 깊이별 소비량과 하루 가능 횟수', () => {
-    assert.deepEqual(estimateQuota(50), { searchCalls: 1, otherUnits: 2, searchesPerDay: 100, pages: 1 });
-    assert.deepEqual(estimateQuota(100), { searchCalls: 2, otherUnits: 4, searchesPerDay: 50, pages: 2 });
-    assert.deepEqual(estimateQuota(200), { searchCalls: 4, otherUnits: 8, searchesPerDay: 25, pages: 4 });
+    // otherUnits는 최악(결과마다 다른 채널) 기준 상한이다.
+    assert.deepEqual(estimateQuota(50), { searchCalls: 1, otherUnits: 102, searchesPerDay: 98, pages: 1 });
+    assert.deepEqual(estimateQuota(100), { searchCalls: 2, otherUnits: 204, searchesPerDay: 49, pages: 2 });
+    assert.deepEqual(estimateQuota(200), { searchCalls: 4, otherUnits: 408, searchesPerDay: 24, pages: 4 });
   });
 
-  // 검색 버킷(100회)이 공용 버킷(10,000)보다 훨씬 먼저 닿는다.
-  // 부가 호출을 아껴도 검색 횟수는 늘지 않는다는 뜻이다.
-  test('하루 가능 횟수는 검색 전용 버킷이 결정한다', () => {
+  // 채널별 업로드 조회가 붙으면서 두 버킷이 비슷한 시점에 닿는다.
+  // 어느 쪽이든 먼저 닿는 쪽이 상한이어야 낙관적으로 보이지 않는다.
+  test('하루 가능 횟수는 두 버킷 중 먼저 닿는 쪽이 결정한다', () => {
     for (const depth of SEARCH_DEPTHS) {
       const { searchCalls, otherUnits, searchesPerDay } = estimateQuota(depth);
-      assert.equal(searchesPerDay, Math.floor(SEARCH_DAILY_LIMIT / searchCalls));
-      assert.ok(Math.floor(GENERAL_DAILY_UNITS / otherUnits) > searchesPerDay);
+      const bySearch = Math.floor(SEARCH_DAILY_LIMIT / searchCalls);
+      const byGeneral = Math.floor(GENERAL_DAILY_UNITS / otherUnits);
+      assert.equal(searchesPerDay, Math.min(bySearch, byGeneral));
     }
   });
 

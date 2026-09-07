@@ -33,6 +33,8 @@ function makeVideo(overrides: Partial<VideoData> = {}): VideoData {
       hiddenSubscriberCount: false,
       videoCount: 10,
       totalViewCount: 10_000,
+      uploadsPlaylistId: null,
+      recentUploads: null,
     },
     ...overrides,
   };

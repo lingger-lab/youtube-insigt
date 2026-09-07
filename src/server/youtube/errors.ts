@@ -16,6 +16,7 @@ export type YouTubeErrorCode =
   | 'RATE_LIMITED'
   | 'UPSTREAM_ERROR'
   | 'TIMEOUT'
+  | 'NOT_FOUND'
   | 'MALFORMED_RESPONSE';
 
 /** 클라이언트로 내보내도 안전한 한국어 메시지. 내부 정보를 담지 않는다. */
@@ -33,6 +34,7 @@ const USER_MESSAGE: Record<YouTubeErrorCode, string> = {
   RATE_LIMITED: 'YouTube API 요청이 일시적으로 제한되었습니다. 잠시 후 다시 시도해 주세요.',
   UPSTREAM_ERROR: 'YouTube 서버가 응답하지 않습니다. 잠시 후 다시 시도해 주세요.',
   TIMEOUT: 'YouTube API 응답이 지연되어 요청을 중단했습니다.',
+  NOT_FOUND: '요청한 YouTube 리소스를 찾을 수 없습니다.',
   MALFORMED_RESPONSE: 'YouTube API가 예상과 다른 형식으로 응답했습니다.',
 };
 
@@ -105,6 +107,11 @@ export function classifyHttpError(status: number, body: unknown, endpoint?: stri
       return new YouTubeApiError('API_KEY_INVALID', `키 거부 (reason=${reason})`, 502);
     }
     return new YouTubeApiError('BAD_REQUEST', `잘못된 요청 (reason=${reason || 'unknown'})`, 400);
+  }
+
+  if (status === 404) {
+    // 업로드 재생목록이 없는 채널(playlistNotFound) 등. 호출자가 골라서 처리한다.
+    return new YouTubeApiError('NOT_FOUND', `없음 (reason=${reason || 'unknown'})`, 404);
   }
 
   if (status >= 500) {

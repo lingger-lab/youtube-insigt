@@ -67,6 +67,12 @@ describe('classifyHttpError', () => {
     }
   });
 
+  test('404는 NOT_FOUND이며 재시도하지 않는다', () => {
+    const error = classifyHttpError(404, errorBody('playlistNotFound', 404));
+    assert.equal(error.code, 'NOT_FOUND');
+    assert.equal(error.retryable, false);
+  });
+
   test('본문이 비어 있어도 상태 코드만으로 분류한다', () => {
     assert.equal(classifyHttpError(403, null).code, 'API_KEY_INVALID');
     assert.equal(classifyHttpError(500, 'not json').code, 'UPSTREAM_ERROR');

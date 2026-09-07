@@ -1,7 +1,9 @@
-import type { ChannelSnapshot, SearchFilters, VideoData } from '../../types/youtube.ts';
+import type { ChannelSnapshot, RecentUpload, SearchFilters, VideoData } from '../../types/youtube.ts';
 import { youtubeGet, createStats, type CallStats } from './client.ts';
+import { YouTubeApiError } from './errors.ts';
 import {
   ChannelListResponseSchema,
+  PlaylistItemsResponseSchema,
   SearchResponseSchema,
   VideoListResponseSchema,
   parseOrThrow,
@@ -17,6 +19,26 @@ function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
+}
+
+/** 채널별 업로드 조회 동시성. 수십 채널을 한꺼번에 쏘면 userRateLimitExceeded가 난다. */
+const UPLOADS_CONCURRENCY = 6;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /**
@@ -127,7 +149,8 @@ async function fetchChannelSnapshots(
 ): Promise<Map<string, ChannelSnapshot>> {
   const batches = await Promise.all(
     chunk(channelIds, PAGE_SIZE).map(async (batch) => {
-      const params = new URLSearchParams({ part: 'statistics', id: batch.join(',') });
+      // contentDetails를 더해도 비용은 같다(part는 정액). 업로드 재생목록 ID가 공짜로 온다.
+      const params = new URLSearchParams({ part: 'statistics,contentDetails', id: batch.join(',') });
       const payload = parseOrThrow(
         ChannelListResponseSchema,
         await youtubeGet('channels', params, stats),
@@ -143,12 +166,79 @@ async function fetchChannelSnapshots(
           hiddenSubscriberCount: hidden,
           videoCount: toCount(item.statistics?.videoCount),
           totalViewCount: toCount(item.statistics?.viewCount),
+          uploadsPlaylistId: item.contentDetails?.relatedPlaylists?.uploads ?? null,
+          recentUploads: null,
         };
       });
     }),
   );
 
   return new Map(batches.flat().map((snapshot) => [snapshot.channelId, snapshot]));
+}
+
+/**
+ * 채널 하나의 최근 업로드(최대 50편)를 받는다. 2 units, 검색 버킷과 무관.
+ *
+ * playlistItems.list(1) -> videoId 50개 -> videos.list(1) -> 조회수·길이.
+ * 이 목록이 있어야 Shorts와 롱폼을 갈라 같은 포맷끼리 기준선을 세울 수 있다.
+ *
+ * 재생목록이 없는 채널(404 playlistNotFound)은 null로 두고 넘어간다. 채널 하나
+ * 때문에 검색 전체를 실패시키지 않기 위한 **의도된 부분 실패**이며, 결과는
+ * metrics.baselineSource='lifetime-mean'으로 사용자에게 보인다. 할당량·키 오류는
+ * 그대로 던진다 — 그건 채널 문제가 아니다.
+ */
+async function fetchRecentUploads(
+  uploadsPlaylistId: string,
+  stats: CallStats,
+): Promise<RecentUpload[] | null> {
+  try {
+    const listed = parseOrThrow(
+      PlaylistItemsResponseSchema,
+      await youtubeGet(
+        'playlistItems',
+        new URLSearchParams({ part: 'contentDetails', playlistId: uploadsPlaylistId, maxResults: '50' }),
+        stats,
+      ),
+      'playlistItems',
+    );
+    const ids = (listed.items ?? []).map((i) => i.contentDetails?.videoId).filter((id): id is string => !!id);
+    if (ids.length === 0) return [];
+
+    const detailed = parseOrThrow(
+      VideoListResponseSchema,
+      await youtubeGet(
+        'videos',
+        new URLSearchParams({ part: 'statistics,contentDetails,snippet', id: ids.join(',') }),
+        stats,
+      ),
+      'videos',
+    );
+    return (detailed.items ?? []).map((item) => ({
+      id: item.id,
+      viewCount: toCount(item.statistics?.viewCount) ?? 0,
+      duration: item.contentDetails?.duration ?? 'PT0S',
+      publishedAt: item.snippet?.publishedAt ?? '',
+    }));
+  } catch (error) {
+    if (error instanceof YouTubeApiError && error.code === 'NOT_FOUND') {
+      console.warn('[youtube/search] 업로드 재생목록 없음, 채널 전체 통계로 대체', { uploadsPlaylistId });
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function attachRecentUploads(
+  channels: Map<string, ChannelSnapshot>,
+  stats: CallStats,
+): Promise<void> {
+  const targets = [...channels.values()].filter((c) => c.uploadsPlaylistId);
+  const uploads = await mapWithConcurrency(targets, UPLOADS_CONCURRENCY, (c) =>
+    fetchRecentUploads(c.uploadsPlaylistId as string, stats),
+  );
+  targets.forEach((c, i) => {
+    channels.set(c.channelId, { ...c, recentUploads: uploads[i] });
+  });
 }
 
 /** 통계를 못 받은 채널. 값을 지어내지 않고 전부 null로 둔다. */
@@ -159,6 +249,8 @@ function unknownChannel(channelId: string): ChannelSnapshot {
     hiddenSubscriberCount: false,
     videoCount: null,
     totalViewCount: null,
+    uploadsPlaylistId: null,
+    recentUploads: null,
   };
 }
 
@@ -182,7 +274,9 @@ export async function searchYouTube(
   const details = await fetchVideoDetails(videoIds, stats);
 
   const channelIds = [...new Set(details.map((v) => v.channelId).filter(Boolean))];
-  const channels = channelIds.length > 0 ? await fetchChannelSnapshots(channelIds, stats) : new Map();
+  const channels: Map<string, ChannelSnapshot> =
+    channelIds.length > 0 ? await fetchChannelSnapshots(channelIds, stats) : new Map();
+  await attachRecentUploads(channels, stats);
 
   const byId = new Map(details.map((video) => [video.id, video]));
 

@@ -50,6 +50,17 @@ export function selectCohort(videos: VideoWithMetrics[], size: number = COHORT_S
   };
 }
 
+function describeBaseline(video: VideoWithMetrics): string {
+  const { baselineSource, baselinePeerCount } = video.metrics;
+  if (baselineSource === 'format-median') {
+    return `같은 채널 같은 포맷 최근 ${baselinePeerCount}편의 중앙값`;
+  }
+  if (baselineSource === 'lifetime-mean') {
+    return '채널 전체 평균 (최근 목록 없음, Shorts/롱폼 구분 안 됨 — 신뢰도 낮음)';
+  }
+  return '계산 불가';
+}
+
 function daysLabel(video: VideoWithMetrics): string {
   return `${video.metrics.daysSincePublish}일`;
 }
@@ -176,7 +187,7 @@ ${tableRows(contrast, 1)}
   return `# 분석 대상
 - **제목**: ${video.title}
 - **채널**: ${video.channelTitle} (구독자 ${formatSubscriberCount(video.channel.subscriberCount)})
-- **성과배수(채널 평소 대비)**: ${formatMultiple(video.metrics.performanceMultiple)}
+- **성과배수(채널 평소 대비)**: ${formatMultiple(video.metrics.performanceMultiple)} — 기준선: ${describeBaseline(video)}
 - **조회수**: ${formatViewCount(video.viewCount)} (일평균 ${formatViewCount(Math.round(video.metrics.viewsPerDay))})
 - **좋아요율**: ${formatPercent(video.metrics.likeRate)} / **댓글율**: ${formatPercent(video.metrics.commentRate)}
 - **길이**: ${formatDuration(video.duration)}

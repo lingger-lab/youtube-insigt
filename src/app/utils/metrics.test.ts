@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ChannelSnapshot, VideoData } from '../../types/youtube.ts';
-import { computeMetrics, daysSincePublish, withMetrics, compareByMetric } from './metrics.ts';
+import type { ChannelSnapshot, RecentUpload, VideoData } from '../../types/youtube.ts';
+import { computeMetrics, daysSincePublish, withMetrics, compareByMetric, baselineFor, MIN_FORMAT_PEERS } from './metrics.ts';
 
 const NOW = Date.parse('2026-09-04T12:00:00.000Z');
 const DAY_MS = 86_400_000;
@@ -13,8 +13,16 @@ function makeChannel(overrides: Partial<ChannelSnapshot> = {}): ChannelSnapshot 
     hiddenSubscriberCount: false,
     videoCount: 200,
     totalViewCount: 20_000_000,
+    uploadsPlaylistId: 'UUch1',
+    // 기본 픽스처는 최근 목록 없음 -> 채널 전체 통계 경로. 포맷 분리는 별도 describe에서.
+    recentUploads: null,
     ...overrides,
   };
+}
+
+/** 같은 채널의 최근 업로드 픽스처. duration으로 포맷을 가른다. */
+function upload(id: string, viewCount: number, duration: string): RecentUpload {
+  return { id, viewCount, duration, publishedAt: new Date(NOW - 30 * DAY_MS).toISOString() };
 }
 
 function makeVideo(overrides: Partial<VideoData> = {}): VideoData {
@@ -113,6 +121,90 @@ describe('performanceMultiple (주지표)', () => {
     const channel = makeChannel({ subscriberCount: null, hiddenSubscriberCount: true });
     const m = computeMetrics(makeVideo({ channel }), NOW);
     assert.ok(m.performanceMultiple !== null && m.performanceMultiple > 0);
+  });
+});
+
+describe('baselineFor — 같은 포맷 중앙값 (Shorts 오염 수정)', () => {
+  // Shorts 위주 채널의 롱폼 영상. 채널 전체 평균은 Shorts 조회수에 끌려가 의미가 없다.
+  const shortsHeavy = makeChannel({
+    recentUploads: [
+      upload('s1', 2_000_000, 'PT45S'),
+      upload('s2', 1_500_000, 'PT50S'),
+      upload('s3', 3_000_000, 'PT30S'),
+      upload('s4', 2_500_000, 'PT40S'),
+      upload('l1', 40_000, 'PT12M'),
+      upload('l2', 60_000, 'PT9M'),
+      upload('l3', 50_000, 'PT15M'),
+      upload('l4', 900_000, 'PT11M'), // 한 편 터진 롱폼 — 평균이면 기준선을 끌어올린다
+    ],
+  });
+
+  test('롱폼 영상은 같은 채널의 롱폼끼리만 비교한다', () => {
+    const video = makeVideo({ id: 'target', viewCount: 200_000, duration: 'PT10M', channel: shortsHeavy });
+    const b = baselineFor(video);
+    assert.equal(b.source, 'format-median');
+    assert.equal(b.peerCount, 4);
+    // 롱폼 4편 {40k, 60k, 50k, 900k} 중앙값 = (50k+60k)/2 = 55k
+    assert.equal(b.value, 55_000);
+    assert.equal(Math.round(computeMetrics(video, NOW).performanceMultiple! * 100) / 100, 3.64);
+  });
+
+  test('Shorts 영상은 같은 채널의 Shorts끼리만 비교한다', () => {
+    const video = makeVideo({ id: 'target', viewCount: 5_000_000, duration: 'PT35S', channel: shortsHeavy });
+    const b = baselineFor(video);
+    assert.equal(b.source, 'format-median');
+    assert.equal(b.peerCount, 4);
+    assert.equal(b.value, 2_250_000); // {1.5M, 2M, 2.5M, 3M} 중앙값
+  });
+
+  test('중앙값이라 한 편 터진 영상이 기준선을 끌어올리지 못한다', () => {
+    const video = makeVideo({ id: 'target', viewCount: 200_000, duration: 'PT10M', channel: shortsHeavy });
+    const b = baselineFor(video);
+    // 평균이었다면 (40+60+50+900)/4 = 262.5k 로 성과배수 < 1 이 됐을 것
+    assert.ok(b.value! < 100_000);
+  });
+
+  test('본 영상이 최근 목록에 있으면 자기 자신은 뺀다', () => {
+    const channel = makeChannel({
+      recentUploads: [
+        upload('target', 1_000_000, 'PT10M'),
+        upload('a', 10_000, 'PT10M'),
+        upload('b', 12_000, 'PT10M'),
+        upload('c', 11_000, 'PT10M'),
+      ],
+    });
+    const video = makeVideo({ id: 'target', viewCount: 1_000_000, duration: 'PT10M', channel });
+    const b = baselineFor(video);
+    assert.equal(b.peerCount, 3);
+    assert.equal(b.value, 11_000);
+  });
+
+  test(`같은 포맷 동료가 ${MIN_FORMAT_PEERS}편 미만이면 채널 전체 통계로 내려가고 그 사실을 드러낸다`, () => {
+    const channel = makeChannel({
+      recentUploads: [upload('l1', 10_000, 'PT10M'), upload('l2', 12_000, 'PT10M'), upload('s1', 5_000_000, 'PT30S')],
+    });
+    const video = makeVideo({ id: 'target', viewCount: 500_000, duration: 'PT10M', channel });
+    const b = baselineFor(video);
+    assert.equal(b.source, 'lifetime-mean');
+    assert.equal(b.peerCount, 199);
+  });
+
+  test('최근 목록을 못 받았으면(null) 채널 전체 통계로 내려간다', () => {
+    const b = baselineFor(makeVideo({ channel: makeChannel({ recentUploads: null }) }));
+    assert.equal(b.source, 'lifetime-mean');
+  });
+
+  test('둘 다 없으면 null이며 출처도 null이다', () => {
+    const channel = makeChannel({ recentUploads: null, totalViewCount: null, videoCount: null });
+    const b = baselineFor(makeVideo({ channel }));
+    assert.deepEqual(b, { value: null, source: null, peerCount: 0 });
+    assert.equal(computeMetrics(makeVideo({ channel }), NOW).baselineSource, null);
+  });
+
+  test('computeMetrics가 기준선 출처와 동료 수를 함께 낸다', () => {
+    const m = computeMetrics(makeVideo({ id: 'target', duration: 'PT10M', channel: shortsHeavy }), NOW);
+    assert.equal(m.baselineSource, 'format-median');
+    assert.equal(m.baselinePeerCount, 4);
   });
 });
 

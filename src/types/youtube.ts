@@ -21,13 +21,26 @@ export interface SearchFilters {
 /** 검색 깊이. 할당량이 실질 상한이라 사용자가 직접 고른다. */
 export type SearchDepth = 50 | 100 | 200;
 
+/** 채널의 최근 업로드 한 편. 기준선 계산용 최소 사실만. */
+export interface RecentUpload {
+  id: string;
+  viewCount: number;
+  /** ISO 8601 (PT#M#S). 포맷(Shorts/롱폼) 판별은 metrics에서 한다. */
+  duration: string;
+  publishedAt: string;
+}
+
 /**
  * 채널 통계 스냅샷. API가 준 값만 담는다.
  *
  * subscriberCount는 두 가지 이유로 지표의 분모로 쓰기 나쁘다.
  * 1. 채널이 숨기면 아예 오지 않는다 (hiddenSubscriberCount)
  * 2. 1,000명을 넘으면 유효숫자 3자리로 반올림된다 (123,456 -> 123,000)
- * 그래서 총조회수·총영상수로 기준선을 세운다 (metrics.peerAverageViews).
+ *
+ * 채널 전체 통계(총조회수 ÷ 총영상수)도 분모로 나쁘다. Shorts와 롱폼이 섞인
+ * 채널에서는 두 포맷의 조회수 분포가 전혀 달라 평균이 의미를 잃는다. 그래서
+ * 최근 업로드 목록을 함께 받아 **같은 포맷끼리** 기준선을 세운다
+ * (metrics.baselineFor). 목록을 못 받은 채널은 채널 전체 통계로 내려간다.
  */
 export interface ChannelSnapshot {
   channelId: string;
@@ -36,6 +49,13 @@ export interface ChannelSnapshot {
   hiddenSubscriberCount: boolean;
   videoCount: number | null;
   totalViewCount: number | null;
+  /** 업로드 재생목록 ID. channels.list contentDetails에서 옴. 없으면 null. */
+  uploadsPlaylistId: string | null;
+  /**
+   * 최근 업로드(최대 50편). 못 받았으면 null — 빈 배열([])과 구분한다.
+   * playlistItems 1 unit + videos 1 unit, 검색 버킷과 무관.
+   */
+  recentUploads: RecentUpload[] | null;
 }
 
 /** API가 준 사실만. 파생 지표는 여기 없다. */
@@ -66,9 +86,20 @@ export interface VideoData {
 /**
  * VideoData에서 계산되는 지표. 저장하지 않고 표시·정렬 직전에 만든다.
  */
+/**
+ * 성과배수의 분모가 어디서 왔는지.
+ * - format-median: 같은 채널·같은 포맷 최근 영상들의 중앙값 (본 영상 제외)
+ * - lifetime-mean: 채널 총조회수 기반 평균 (본 영상 제외). 포맷 구분 없음 — 열등한 기준
+ * - null: 계산 불가
+ */
+export type BaselineSource = 'format-median' | 'lifetime-mean' | null;
+
 export interface VideoMetrics {
-  /** 조회수 ÷ 같은 채널의 나머지 영상 평균. "평소 대비 몇 배" — 주지표. */
+  /** 조회수 ÷ 기준선. "평소 대비 몇 배" — 주지표. 기준선의 출처는 baselineSource. */
   performanceMultiple: number | null;
+  baselineSource: BaselineSource;
+  /** 기준선을 만든 동료 영상 수. lifetime-mean이면 videoCount-1. */
+  baselinePeerCount: number;
   /** 업로드 후 하루당 조회수. 오래된 영상의 상위 독식을 교정한다. */
   viewsPerDay: number;
   daysSincePublish: number;

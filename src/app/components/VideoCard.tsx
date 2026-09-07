@@ -42,10 +42,21 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
             ? 'bg-gray-700 text-gray-400'
             : 'bg-gray-700 text-gray-300'
       }`}
-      title="채널 평균 조회수 대비 이 영상의 조회수"
+      title={
+        metrics.baselineSource === 'format-median'
+          ? `같은 채널의 최근 ${isShortVideo ? 'Shorts' : '롱폼'} ${metrics.baselinePeerCount}편 중앙값 대비`
+          : metrics.baselineSource === 'lifetime-mean'
+            ? '채널 전체 평균 대비 (최근 업로드 목록 없음 — 포맷 구분 안 됨)'
+            : '기준선을 계산할 수 없음'
+      }
     >
       {outperforming && <span aria-hidden="true">🔥</span>}
       {formatMultiple(metrics.performanceMultiple)}
+      {metrics.baselineSource === 'lifetime-mean' && (
+        <span className="text-[10px] opacity-70" title="포맷 구분 없는 열등한 기준선">
+          *
+        </span>
+      )}
     </div>
   );
 

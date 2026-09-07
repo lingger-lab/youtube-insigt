@@ -1,6 +1,10 @@
-import type { VideoData, VideoMetrics, VideoWithMetrics } from '../../types/youtube.ts';
+import type { BaselineSource, VideoData, VideoMetrics, VideoWithMetrics } from '../../types/youtube.ts';
+import { getVideoType } from './videoUtils.ts';
 
 const DAY_MS = 86_400_000;
+
+/** 같은 포맷 동료가 이보다 적으면 중앙값이 불안정해 채널 전체 통계로 내려간다. */
+export const MIN_FORMAT_PEERS = 3;
 
 /**
  * 파생 지표 계산.
@@ -49,13 +53,53 @@ export function peerAverageViews(video: VideoData): number | null {
   return peerViews / (videoCount - 1);
 }
 
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+export interface Baseline {
+  value: number | null;
+  source: BaselineSource;
+  peerCount: number;
+}
+
+/**
+ * 성과배수의 분모.
+ *
+ * 1순위: 같은 채널·**같은 포맷**(Shorts/롱폼) 최근 영상들의 **중앙값**, 본 영상 제외.
+ *   Shorts와 롱폼은 조회수 분포가 전혀 달라 섞으면 평균이 의미를 잃는다. 중앙값을
+ *   쓰는 이유는 한 편 터진 영상이 기준선을 끌어올리지 못하게 하기 위해서다.
+ * 2순위: 최근 목록이 없거나 같은 포맷 동료가 MIN_FORMAT_PEERS 미만이면 채널 전체
+ *   통계 기반 평균(peerAverageViews). 열등한 기준이며 source로 드러낸다.
+ */
+export function baselineFor(video: VideoData): Baseline {
+  const uploads = video.channel.recentUploads;
+  if (uploads) {
+    const format = getVideoType(video.duration);
+    const peers = uploads.filter((u) => u.id !== video.id && getVideoType(u.duration) === format);
+    if (peers.length >= MIN_FORMAT_PEERS) {
+      const value = median(peers.map((u) => u.viewCount));
+      return { value: value > 0 ? value : null, source: value > 0 ? 'format-median' : null, peerCount: peers.length };
+    }
+  }
+
+  const lifetime = peerAverageViews(video);
+  if (lifetime === null) return { value: null, source: null, peerCount: 0 };
+  return { value: lifetime, source: 'lifetime-mean', peerCount: (video.channel.videoCount ?? 1) - 1 };
+}
+
 export function computeMetrics(video: VideoData, now: number = Date.now()): VideoMetrics {
   const days = daysSincePublish(video.publishedAt, now);
+  const baseline = baselineFor(video);
 
   return {
     // 주지표: 같은 채널의 **다른** 영상들이 평소 받는 조회수 대비 몇 배인가.
     // 구독자수와 달리 반올림도 없고 비공개로 사라지지도 않는다.
-    performanceMultiple: ratio(video.viewCount, peerAverageViews(video)),
+    performanceMultiple: ratio(video.viewCount, baseline.value),
+    baselineSource: baseline.source,
+    baselinePeerCount: baseline.peerCount,
 
     // 채널 평균은 영상들의 '누적' 조회수 평균이라 신작에 불리하다.
     // 그 편향을 보정할 짝으로 하루당 조회수를 함께 둔다.

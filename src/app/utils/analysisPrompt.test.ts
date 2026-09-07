@@ -31,6 +31,8 @@ function makeVideo(id: string, multiple: number, overrides: Partial<VideoData> =
       hiddenSubscriberCount: false,
       videoCount: 100,
       totalViewCount: averageViews * 100,
+      uploadsPlaylistId: null,
+      recentUploads: null,
     },
     ...overrides,
   };

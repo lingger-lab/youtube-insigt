@@ -20,6 +20,7 @@ export const QUOTA_BUCKET = {
   search: 'search',
   videos: 'general',
   channels: 'general',
+  playlistItems: 'general',
 } as const;
 
 export type YouTubeEndpoint = keyof typeof QUOTA_BUCKET;
