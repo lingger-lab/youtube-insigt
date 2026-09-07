@@ -85,6 +85,10 @@ src/server/youtube/       서버 전용. 키는 이 경계 밖으로 안 나간�
   schema.ts               zod 경계 검증
   search.ts               search 순차 → videos/channels 50개씩 병렬
 src/app/api/search/       POST 프록시 (maxDuration 60s)
+src/app/api/thumbnail/    i.ytimg.com 프록시 (CORS 우회, 할당량 0)
+src/app/api/analyze/      앱 내 LLM 분석 (선택, ANTHROPIC_API_KEY 없으면 503/잠김)
+src/server/llm/analyze.ts @anthropic-ai/sdk · claude-opus-5 · 스트리밍→finalMessage · refusal fallback
+                          · 응답마다 usage + 추정 비용. 키 없으면 네트워크 전에 차단
 src/app/utils/
   metrics.ts              파생 지표를 만드는 유일한 곳
   analysisPrompt.ts       대조군 포함 프롬프트 생성
@@ -104,4 +108,11 @@ src/app/utils/
 
 ## 배포
 
-Vercel (`icn1`). 환경변수 `YT_API_KEY`. 프로덕션 배포는 **항상 사용자 승인**이 필요하다.
+Vercel (`icn1`). 환경변수 `YT_API_KEY`(필수), `ANTHROPIC_API_KEY`(선택 — 넣는 순간 돈이 든다).
+프로덕션 배포는 **항상 사용자 승인**이 필요하다.
+
+## LLM 연동 규칙
+- 모델 ID는 `claude-opus-5` 그대로. 날짜 접미사를 붙이지 말 것. 바꾸려면 `LLM_MODEL` 환경변수
+- 공식 SDK만 쓴다. raw fetch로 Messages API를 부르지 않는다
+- 비용이 보이지 않는 경로를 만들지 말 것 — 모든 응답에 `usage`와 `estimatedCostUsd`
+- Vercel Hobby는 함수 60s. 긴 분석이 잘리면 Fluid compute(300s) 또는 `LLM_EFFORT=medium`

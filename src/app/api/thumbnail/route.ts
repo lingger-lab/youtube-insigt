@@ -1,3 +1,5 @@
+import { fetchThumbnail, VIDEO_ID_PATTERN } from '../../../server/youtube/thumbnail.ts';
+
 /**
  * YouTube 썸네일 프록시.
  *
@@ -11,38 +13,23 @@
 
 export const runtime = 'nodejs';
 
-const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
-const TIMEOUT_MS = 8_000;
-
-/** maxres는 없는 영상이 많아(404) 단계적으로 내려간다. */
-const CANDIDATES = ['maxresdefault', 'hqdefault', 'mqdefault'] as const;
-
 export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get('v') ?? '';
-  if (!VIDEO_ID.test(id)) {
+  if (!VIDEO_ID_PATTERN.test(id)) {
     return new Response('invalid video id', { status: 400 });
   }
 
-  for (const name of CANDIDATES) {
-    let upstream: Response;
-    try {
-      upstream = await fetch(`https://i.ytimg.com/vi/${id}/${name}.jpg`, {
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-    } catch {
-      continue;
-    }
-    if (!upstream.ok) continue;
-
-    return new Response(upstream.body, {
-      status: 200,
-      headers: {
-        'Content-Type': upstream.headers.get('content-type') ?? 'image/jpeg',
-        'Cache-Control': 'public, max-age=86400, s-maxage=86400',
-        'X-Thumbnail-Variant': name,
-      },
-    });
+  const thumb = await fetchThumbnail(id);
+  if (!thumb) {
+    return new Response('thumbnail not found', { status: 404 });
   }
 
-  return new Response('thumbnail not found', { status: 404 });
+  return new Response(thumb.bytes, {
+    status: 200,
+    headers: {
+      'Content-Type': thumb.contentType,
+      'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+      'X-Thumbnail-Variant': thumb.variant,
+    },
+  });
 }

@@ -42,6 +42,16 @@ YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독�
    YT_API_KEY=your_youtube_api_key_here
    ```
 
+   **선택 — 앱 내 LLM 분석.** 기본은 프롬프트를 클립보드로 복사해 외부 LLM에 붙여넣는
+   방식이며 비용이 없습니다. 서버에 `ANTHROPIC_API_KEY`를 넣으면 "앱에서 분석" 버튼이
+   활성화되어 썸네일을 자동 첨부해 Claude에 보내고 결과를 앱 안에 보여줍니다.
+   **토큰 비용이 듭니다** — 결과마다 사용량과 추정 비용을 표시합니다.
+   ```
+   ANTHROPIC_API_KEY=sk-ant-...   # 없으면 기능 꺼짐. NEXT_PUBLIC_ 금지
+   LLM_MODEL=claude-opus-5        # 선택, 기본값
+   LLM_EFFORT=high                # 선택: low|medium|high|xhigh|max
+   ```
+
 4. **개발 서버 실행**
    ```bash
    npm run dev

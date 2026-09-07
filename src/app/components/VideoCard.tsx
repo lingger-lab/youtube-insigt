@@ -14,6 +14,8 @@ import { formatDuration, isShorts } from '../utils/videoUtils';
 import { buildSingleVideoPrompt, type Cohort } from '../utils/analysisPrompt';
 import CopyButton from './CopyButton';
 import TranscriptField from './TranscriptField';
+import AnalyzeButton from './AnalyzeButton';
+import type { LlmStatus } from '../utils/llmClient';
 import { useState } from 'react';
 
 interface VideoCardProps {
@@ -22,9 +24,11 @@ interface VideoCardProps {
   /** 같은 검색 결과에서 뽑은 대조군. 단일 사례로는 인과를 가릴 수 없다. */
   cohort: Cohort;
   searchTerm: string;
+  /** 앱 내 LLM 분석 가능 여부. 서버에 키가 없으면 버튼이 잠긴다. */
+  llm: LlmStatus;
 }
 
-export default function VideoCard({ video, displayMode, cohort, searchTerm }: VideoCardProps) {
+export default function VideoCard({ video, displayMode, cohort, searchTerm, llm }: VideoCardProps) {
   const { metrics } = video;
   const outperforming = isOutperforming(metrics.performanceMultiple);
   const isShortVideo = isShorts(video.duration);
@@ -159,6 +163,17 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
               <TranscriptField videoId={video.id} value={transcript} onChange={setTranscript} />
             </div>
           )}
+          {llm.enabled && (
+            <div className="mt-3">
+              <AnalyzeButton
+                enabled={llm.enabled}
+                model={llm.model}
+                getPrompt={analysisPrompt}
+                thumbnailVideoIds={[video.id, ...cohort.bottom.filter((v) => v.id !== video.id).slice(0, 5).map((v) => v.id)]}
+                label="앱에서 이 영상 분석"
+              />
+            </div>
+          )}
         </div>
       </article>
     );
@@ -225,6 +240,17 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
         {showTranscript && (
           <div className="relative z-10">
             <TranscriptField videoId={video.id} value={transcript} onChange={setTranscript} />
+          </div>
+        )}
+        {llm.enabled && (
+          <div className="mt-3">
+            <AnalyzeButton
+              enabled={llm.enabled}
+              model={llm.model}
+              getPrompt={analysisPrompt}
+              thumbnailVideoIds={[video.id, ...cohort.bottom.filter((v) => v.id !== video.id).slice(0, 5).map((v) => v.id)]}
+              label="앱에서 분석"
+            />
           </div>
         )}
       </div>

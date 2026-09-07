@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { VideoData, SearchFilters, searchYouTube } from './utils/youtubeApi';
 import type { SearchDepth, SearchUsage } from '../types/youtube';
 import { filterVideosByType } from './utils/videoUtils';
@@ -9,6 +9,8 @@ import { selectCohort, buildMarketAnalysisPrompt } from './utils/analysisPrompt'
 import SearchDepthPicker from './components/SearchDepthPicker';
 import CopyButton from './components/CopyButton';
 import ThumbnailSheetButton from './components/ThumbnailSheetButton';
+import AnalyzeButton from './components/AnalyzeButton';
+import { getLlmStatus, type LlmStatus } from './utils/llmClient';
 import Header from './components/Header';
 import Sidebar, { MobileNavDrawer, type VideoFilter } from './components/Sidebar';
 import SearchInput from './components/SearchInput';
@@ -46,6 +48,17 @@ export default function Home() {
   // "검색어가 있는가"와 "검색을 했는가"를 한 변수로 겸직시키면, 초기화 때
   // 히어로·결과·빈 상태가 동시에 렌더된다. 분리해서 각자 한 가지만 답하게 한다.
   const [hasSearched, setHasSearched] = useState(false);
+  // 앱 내 LLM 분석은 서버에 키가 있을 때만. 한 번만 물어보고 버튼 표시를 정한다.
+  const [llm, setLlm] = useState<LlmStatus>({ enabled: false, model: null });
+  useEffect(() => {
+    let cancelled = false;
+    getLlmStatus().then((status) => {
+      if (!cancelled) setLlm(status);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 파생 지표는 저장하지 않고 여기 한 곳에서만 만든다.
   // 원본과 파생값을 둘 다 들고 있으면 언젠가 어긋난다.
@@ -265,6 +278,14 @@ export default function Home() {
                       filename={`thumbnails-${searchTerm.replace(/[^\w가-힣]+/g, '_').slice(0, 40) || 'sheet'}.png`}
                     />
                   </div>
+                  {/* 앱 내 분석: 썸네일이 자동 첨부된다. 순서 = 프롬프트 표 행 번호. */}
+                  <AnalyzeButton
+                    enabled={llm.enabled}
+                    model={llm.model}
+                    getPrompt={() => buildMarketAnalysisPrompt(searchTerm, cohort)}
+                    thumbnailVideoIds={[...cohort.top, ...cohort.bottom].map((v) => v.id)}
+                    label="앱에서 시장 분석"
+                  />
                 </div>
               ) : (
                 <div className="mb-6 p-4 bg-gray-800 rounded-lg border border-gray-700 text-sm text-gray-400">
@@ -297,6 +318,7 @@ export default function Home() {
                     displayMode={displayMode}
                     cohort={cohort}
                     searchTerm={searchTerm}
+                    llm={llm}
                   />
                 ))}
               </div>
