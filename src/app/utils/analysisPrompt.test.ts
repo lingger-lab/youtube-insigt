@@ -2,7 +2,12 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import type { VideoData } from '../../types/youtube.ts';
 import { withMetrics } from './metrics.ts';
-import { selectCohort, buildMarketAnalysisPrompt, buildSingleVideoPrompt } from './analysisPrompt.ts';
+import {
+  selectCohort,
+  buildMarketAnalysisPrompt,
+  buildSingleVideoPrompt,
+  TRANSCRIPT_MAX_CHARS,
+} from './analysisPrompt.ts';
 
 const NOW = Date.parse('2026-09-04T12:00:00.000Z');
 const DAY_MS = 86_400_000;
@@ -188,6 +193,47 @@ describe('buildSingleVideoPrompt', () => {
     const set = makeSet(20);
     const prompt = buildSingleVideoPrompt(set[0], selectCohort(set, 5), '키워드');
     assert.ok(prompt.includes('무엇을 추가로 보면 검증되는지'));
+  });
+});
+
+describe('자막 붙여넣기', () => {
+  const set = makeSet(20);
+  const cohort = selectCohort(set, 5);
+  const transcript = '안녕하세요 오늘은 세 가지를 말씀드립니다. 첫째… 둘째… 셋째… 구독 부탁드립니다.';
+
+  test('자막이 없으면 대본 구조 분석을 요청하지 않고 "없는 것"에 남긴다', () => {
+    const p = buildSingleVideoPrompt(set[0], cohort, '키워드');
+    assert.equal(p.includes('## 자막'), false);
+    assert.equal(p.includes('대본 구조 (자막 근거)'), false);
+    assert.ok(p.includes('자막을 직접 붙여넣기 전까지 분석 대상이 아니다'));
+  });
+
+  test('자막이 있으면 그대로 싣고 대본 구조를 자막 인용 근거로 요청한다', () => {
+    const p = buildSingleVideoPrompt(set[0], cohort, '키워드', { transcript });
+    assert.ok(p.includes('## 자막 (사용자가 YouTube에서 복사해 붙여넣음)'));
+    assert.ok(p.includes(transcript));
+    assert.ok(p.includes('대본 구조 (자막 근거)'));
+    assert.ok(p.includes('어느 문장이 근거인지 그대로 인용'));
+    // 자막이 있으니 "없는 것" 목록에서 자막 항목은 빠진다
+    assert.equal(p.includes('자막을 직접 붙여넣기 전까지 분석 대상이 아니다'), false);
+  });
+
+  test('공백뿐인 자막은 없는 것으로 본다', () => {
+    const p = buildSingleVideoPrompt(set[0], cohort, '키워드', { transcript: '   \n  ' });
+    assert.equal(p.includes('## 자막'), false);
+  });
+
+  // 조용히 자르면 모델은 뒷부분이 없는 줄 모르고 "결말이 약하다"고 쓴다.
+  test('상한을 넘는 자막은 앞부분만 싣고 그 사실을 적는다', () => {
+    const long = '가'.repeat(TRANSCRIPT_MAX_CHARS + 500);
+    const p = buildSingleVideoPrompt(set[0], cohort, '키워드', { transcript: long });
+    assert.ok(p.includes(`앞 ${TRANSCRIPT_MAX_CHARS.toLocaleString()}자만 포함`));
+    assert.equal(p.includes('가'.repeat(TRANSCRIPT_MAX_CHARS + 1)), false);
+  });
+
+  test('시장 분석 프롬프트는 자막과 무관하게 자막 항목을 "없는 것"에 둔다', () => {
+    const p = buildMarketAnalysisPrompt('키워드', cohort);
+    assert.ok(p.includes('자막을 직접 붙여넣기 전까지 분석 대상이 아니다'));
   });
 });
 

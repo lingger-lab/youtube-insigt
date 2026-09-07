@@ -96,13 +96,38 @@ function tableRows(videos: VideoWithMetrics[], startIndex: number): string {
 const TABLE_HEADER = `| # | 제목 | 성과배수 | 조회수 | 길이 | 좋아요율 | 경과 | 태그 |
 |---|---|---|---|---|---|---|---|`;
 
-/** 데이터로 확인할 수 없는 것을 매번 명시한다. 숨기면 모델이 채워 넣는다. */
-const DATA_LIMITS = `## 이 데이터에 없는 것 (추측하지 말 것)
-- **썸네일 이미지**: 앱의 "썸네일 시트 복사"로 만든 격자 이미지(각 칸의 #번호 = 아래 표의 행 번호)를 이 대화에 붙여넣거나, 아래 링크를 직접 열어 첨부하면 그때 분석 가능. 첨부 전에는 썸네일 구성·색·표정에 대해 쓰지 말 것.
-- **영상 내용/자막**: YouTube 공식 API는 타인 영상의 자막을 제공하지 않는다(소유자 OAuth 필요). 대본 구조·훅·전개는 자막을 직접 붙여넣기 전까지 분석 대상이 아니다.
+/** 사용자가 붙여넣은 자막에서 프롬프트에 싣는 최대 길이. 넘치면 앞부분만 싣고 그 사실을 적는다. */
+export const TRANSCRIPT_MAX_CHARS = 12_000;
+
+/**
+ * 데이터로 확인할 수 없는 것을 매번 명시한다. 숨기면 모델이 채워 넣는다.
+ * 자막을 사용자가 붙여넣었으면 그 항목만 목록에서 빠진다.
+ */
+function dataLimits(hasTranscript: boolean): string {
+  const transcriptLine = hasTranscript
+    ? ''
+    : `\n- **영상 내용/자막**: YouTube 공식 API는 타인 영상의 자막을 제공하지 않는다(소유자 OAuth 필요). 대본 구조·훅·전개는 자막을 직접 붙여넣기 전까지 분석 대상이 아니다.`;
+  return `## 이 데이터에 없는 것 (추측하지 말 것)
+- **썸네일 이미지**: 앱의 "썸네일 시트 복사"로 만든 격자 이미지(각 칸의 #번호 = 아래 표의 행 번호)를 이 대화에 붙여넣거나, 아래 링크를 직접 열어 첨부하면 그때 분석 가능. 첨부 전에는 썸네일 구성·색·표정에 대해 쓰지 말 것.${transcriptLine}
 - **시청 지속률·CTR·노출수**: 채널 소유자만 볼 수 있다. 이탈 구간 추정 금지.
 - **알고리즘 노출량**: 조회수에는 추천 노출 효과가 섞여 있고, 그 비중은 알 수 없다.
 - **조회수 집계 기준 변경**: 2026-08-27부터 모든 포맷에서 재생 시작 즉시(자동재생·호버 포함) 조회수로 센다. 그 이전 영상과 이후 영상의 조회수·일평균은 같은 기준이 아니다.`;
+}
+
+/** 자막 섹션. 사용자가 준 텍스트 그대로 싣되, 상한을 넘으면 앞부분만 싣고 밝힌다. */
+function transcriptSection(transcript: string): string {
+  const trimmed = transcript.trim();
+  const truncated = trimmed.length > TRANSCRIPT_MAX_CHARS;
+  const body = truncated ? trimmed.slice(0, TRANSCRIPT_MAX_CHARS) : trimmed;
+  const note = truncated
+    ? `\n\n(전체 ${trimmed.length.toLocaleString()}자 중 앞 ${TRANSCRIPT_MAX_CHARS.toLocaleString()}자만 포함. 뒷부분은 분석 대상이 아니다.)`
+    : '';
+  return `## 자막 (사용자가 YouTube에서 복사해 붙여넣음)
+\`\`\`
+${body}
+\`\`\`${note}
+`;
+}
 
 const OUTPUT_RULES = `## 작성 규칙
 - 모든 주장에 **표의 행 번호**를 근거로 붙인다 (예: "상위군 #1,#3,#7").
@@ -149,7 +174,7 @@ ${tableRows(top, 1)}
 ${TABLE_HEADER}
 ${tableRows(bottom, bottomStart)}
 
-${DATA_LIMITS}
+${dataLimits(false)}
 ${thumbnailSection(top, '상위군', 1)}${thumbnailSection(bottom, '하위군', bottomStart)}
 ## 요청
 1. **제목 언어의 차이**: 상위군에만 반복되는 표현/구조 패턴을 찾고, 각 패턴이 상위군 몇 건·하위군 몇 건에 나타나는지 세어 표로 제시.
@@ -167,12 +192,19 @@ ${OUTPUT_RULES}`;
  *
  * 대조군 없이 잘된 영상 하나만 주면 무엇이 원인인지 원리적으로 가릴 수 없다.
  */
+export interface SingleVideoPromptOptions {
+  /** 사용자가 YouTube에서 복사해 붙여넣은 자막. 있을 때만 대본 구조 분석을 요청한다. */
+  transcript?: string;
+}
+
 export function buildSingleVideoPrompt(
   video: VideoWithMetrics,
   cohort: Cohort,
   searchTerm: string,
+  options: SingleVideoPromptOptions = {},
 ): string {
   const contrast = cohort.bottom.filter((v) => v.id !== video.id).slice(0, 5);
+  const hasTranscript = (options.transcript ?? '').trim().length > 0;
 
   const contrastSection =
     contrast.length > 0
@@ -200,14 +232,20 @@ ${tableRows(contrast, 1)}
 
 ${contrastSection}
 
-${DATA_LIMITS}
+${dataLimits(hasTranscript)}
 ${thumbnailSection([video], '대상 영상', 1)}
+${hasTranscript ? transcriptSection(options.transcript as string) : ''}
 ## 요청
 1. **제목 분석**: 대상 영상의 제목이 대조군 제목들과 구조적으로 무엇이 다른지. 다르지 않으면 "차이 없음".
 2. **관찰 가능한 성과 신호**: 성과배수·좋아요율·댓글율·일평균 조회수에서 읽을 수 있는 것. 각 수치가 무엇을 시사하고 무엇을 시사하지 **않는지** 함께.
-3. **가설과 확인 방법**: 성공 요인 가설 3개. 각 가설마다 **무엇을 추가로 보면 검증되는지**를 적을 것 (예: "썸네일 첨부", "자막 붙여넣기").
+3. **가설과 확인 방법**: 성공 요인 가설 3개. 각 가설마다 **무엇을 추가로 보면 검증되는지**를 적을 것 (예: "썸네일 첨부"${hasTranscript ? '' : ', "자막 붙여넣기"'}).
 4. **내 주제 적용**: 아래 주제로 제목 5안. 각 안이 위 관찰 중 무엇에 근거하는지 표시.
-
+${
+  hasTranscript
+    ? `5. **대본 구조 (자막 근거)**: 훅(첫 15초 안에 무엇을 약속/제기하는지), 전개 순서, 패턴 인터럽트(질문·반전·전환)가 나오는 지점, 마무리/CTA. **각 항목마다 자막의 어느 문장이 근거인지 그대로 인용**할 것. 자막에 없는 시각 요소(자막·B-roll·표정)는 "자막으로는 알 수 없음"이라고 쓸 것.
+`
+    : ''
+}
 **👇 내 주제를 여기에 입력하세요 (비워두면 4번은 건너뛰세요):**
 \`\`\`
 [여기에 내 주제 입력]

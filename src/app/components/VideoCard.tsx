@@ -13,6 +13,8 @@ import {
 import { formatDuration, isShorts } from '../utils/videoUtils';
 import { buildSingleVideoPrompt, type Cohort } from '../utils/analysisPrompt';
 import CopyButton from './CopyButton';
+import TranscriptField from './TranscriptField';
+import { useState } from 'react';
 
 interface VideoCardProps {
   video: VideoWithMetrics;
@@ -30,7 +32,29 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
 
   const watchUrl = `https://www.youtube.com/watch?v=${video.id}`;
 
-  const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm);
+  // 붙여넣은 자막은 이 카드에만 속한다. 서버로 보내지 않고 프롬프트에만 들어간다.
+  const [transcript, setTranscript] = useState('');
+  const [showTranscript, setShowTranscript] = useState(false);
+
+  const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm, { transcript });
+
+  const transcriptToggle = (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setShowTranscript((v) => !v);
+      }}
+      aria-expanded={showTranscript}
+      aria-controls={`transcript-${video.id}`}
+      className={`px-2 py-1 text-xs rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 ${
+        transcript.trim() ? 'bg-emerald-800 text-emerald-100' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+      }`}
+      title="YouTube에서 복사한 자막을 붙여넣으면 대본 구조까지 분석을 요청합니다"
+    >
+      {transcript.trim() ? '자막 첨부됨' : '자막'}
+    </button>
+  );
 
   /** 채널 평소 대비 성과. 측정 불가는 숫자로 위장하지 않고 그대로 표시한다. */
   const performanceBadge = (
@@ -121,7 +145,8 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
             {performanceBadge}
 
             {/* 링크 오버레이 위로 올려야 눌린다 */}
-            <div className="relative z-10">
+            <div className="relative z-10 flex items-center gap-2">
+              {transcriptToggle}
               <CopyButton
                 getText={analysisPrompt}
                 label="AI분석 복사"
@@ -129,6 +154,11 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
               />
             </div>
           </div>
+          {showTranscript && (
+            <div className="relative z-10">
+              <TranscriptField videoId={video.id} value={transcript} onChange={setTranscript} />
+            </div>
+          )}
         </div>
       </article>
     );
@@ -183,7 +213,8 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
         <div className="flex justify-between items-center gap-2">
           {performanceBadge}
 
-          <div className="relative z-10">
+          <div className="relative z-10 flex items-center gap-2">
+            {transcriptToggle}
             <CopyButton
               getText={analysisPrompt}
               label="AI분석"
@@ -191,6 +222,11 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm }: Vi
             />
           </div>
         </div>
+        {showTranscript && (
+          <div className="relative z-10">
+            <TranscriptField videoId={video.id} value={transcript} onChange={setTranscript} />
+          </div>
+        )}
       </div>
     </article>
   );
