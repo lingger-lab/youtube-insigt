@@ -6,13 +6,17 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "measure": "node --env-file=.env.local scripts/measure.ts",
+    "test:coverage": "node --test --experimental-test-coverage \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "@vercel/og": "^0.8.5",
-    "next": "16.0.10",
+    "@anthropic-ai/sdk": "^0.124.0",
+    "next": "^16.3.4",
     "react": "19.2.1",
-    "react-dom": "19.2.1"
+    "react-dom": "19.2.1",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -20,7 +24,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.0.10",
+    "eslint-config-next": "^16.3.4",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

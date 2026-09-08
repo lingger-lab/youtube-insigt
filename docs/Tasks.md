@@ -1,3 +1,6 @@
+> **주의**: 이 문서는 최초 구현 착수용 프롬프트다. 현재 사양의 기준은
+> PRD.md와 TRD.md이며, 아래 항목은 그에 맞춰 갱신되었다.
+
 # Tasks.md — AI 코딩 착수용 프롬프트
 
 You are a senior Next.js + TypeScript developer and YouTube API integration expert.
@@ -12,11 +15,12 @@ Build a full Next.js 14+ App Router project implementing **YouTube Native + High
    - videoDuration: any, short, medium, long
 3. Deep Search (max 200 results).
 4. Fetch video statistics & channel subscribers.
-5. Compute Viral Score = (viewCount / subscriberCount) * 100.
-6. Provide sorting (조회수, 구독자수, 떡상지수, 최신순) + asc/desc toggle.
+5. Compute 성과배수 = viewCount / ((channel.viewCount - viewCount) / (channel.videoCount - 1)).
+   분모에서 그 영상 자신을 빼야 한다. 계산 불가는 null.
+6. Provide sorting (성과배수, 조회수, 일평균, 좋아요율, 구독자수, 최신순) + asc/desc toggle.
 7. Display results in list/card mode.
-8. Highlight high Viral Scores visually (100배 이상: red gradient + flame).
-9. Use environment variable for API key.
+8. Highlight 성과배수 2배 이상 (red gradient + flame).
+9. API key는 서버 전용 환경변수(YT_API_KEY)로만. 클라이언트 노출 금지.
 10. Follow folder structure from TRD.
 11. Deliver full code with Tailwind, Next.js, .env.sample, and build instructions.
 

@@ -1,10 +1,12 @@
-import { ImageResponse } from '@vercel/og';
-import { NextRequest } from 'next/server';
+// Next 16이 ImageResponse를 자체 번들해 next/og로 재수출한다.
+// 직접 의존하던 @vercel/og는 중복이었고, prod 의존성 트리의 유일한 취약점
+// (satori -> opentype.js -> fflate) 출처이기도 했다.
+import { ImageResponse } from 'next/og';
 
 // Open Graph 이미지 생성 (카카오톡 링크 미리보기용)
 export const runtime = 'edge';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     return new ImageResponse(
       (
@@ -88,9 +90,9 @@ export async function GET(request: NextRequest) {
         height: 630,
       }
     );
-  } catch (e: any) {
-    console.log(`${e.message}`);
-    return new Response(`Failed to generate the image`, {
+  } catch (error) {
+    console.error('[opengraph-image] 생성 실패', error);
+    return new Response('Failed to generate the image', {
       status: 500,
     });
   }
