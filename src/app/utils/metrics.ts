@@ -75,10 +75,14 @@ export interface Baseline {
  *   통계 기반 평균(peerAverageViews). 열등한 기준이며 source로 드러낸다.
  */
 export function baselineFor(video: VideoData): Baseline {
+  const format = getVideoType(video.duration, video.liveStatus);
+  // 라이브·예정은 기준선을 만들지 않는다. 누적 조회수가 며칠치 방송분이거나 아직 0이라
+  // 어떤 동료와 비교해도 뜻이 없고, 채널 전체 평균으로 내려가도 마찬가지다.
+  if (format === 'live') return { value: null, source: null, peerCount: 0 };
+
   const uploads = video.channel.recentUploads;
   if (uploads) {
-    const format = getVideoType(video.duration);
-    const peers = uploads.filter((u) => u.id !== video.id && getVideoType(u.duration) === format);
+    const peers = uploads.filter((u) => u.id !== video.id && getVideoType(u.duration, u.liveStatus) === format);
     if (peers.length >= MIN_FORMAT_PEERS) {
       const value = median(peers.map((u) => u.viewCount));
       return { value: value > 0 ? value : null, source: value > 0 ? 'format-median' : null, peerCount: peers.length };
@@ -97,9 +101,10 @@ export function baselineFor(video: VideoData): Baseline {
 function peerViewsPerDayMedian(video: VideoData, now: number): number | null {
   const uploads = video.channel.recentUploads;
   if (!uploads) return null;
-  const format = getVideoType(video.duration);
+  const format = getVideoType(video.duration, video.liveStatus);
+  if (format === 'live') return null;
   const rates = uploads
-    .filter((u) => u.id !== video.id && getVideoType(u.duration) === format)
+    .filter((u) => u.id !== video.id && getVideoType(u.duration, u.liveStatus) === format)
     .map((u) => u.viewCount / Math.max(1, daysSincePublish(u.publishedAt, now)));
   if (rates.length < MIN_FORMAT_PEERS) return null;
   const m = median(rates);

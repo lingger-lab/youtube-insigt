@@ -21,8 +21,8 @@ function makeChannel(overrides: Partial<ChannelSnapshot> = {}): ChannelSnapshot 
 }
 
 /** 같은 채널의 최근 업로드 픽스처. duration으로 포맷을 가른다. */
-function upload(id: string, viewCount: number, duration: string): RecentUpload {
-  return { id, viewCount, duration, publishedAt: new Date(NOW - 30 * DAY_MS).toISOString() };
+function upload(id: string, viewCount: number, duration: string, liveStatus: RecentUpload['liveStatus'] = 'none'): RecentUpload {
+  return { id, viewCount, duration, publishedAt: new Date(NOW - 30 * DAY_MS).toISOString(), liveStatus };
 }
 
 function makeVideo(overrides: Partial<VideoData> = {}): VideoData {
@@ -42,6 +42,7 @@ function makeVideo(overrides: Partial<VideoData> = {}): VideoData {
     tags: ['태그1'],
     categoryId: '22',
     hasCaption: true,
+    liveStatus: 'none',
     channel: makeChannel(),
     ...overrides,
   };
@@ -208,14 +209,65 @@ describe('baselineFor — 같은 포맷 중앙값 (Shorts 오염 수정)', () =>
   });
 });
 
+describe('라이브·예정 영상 (실측 2026-09-08: 0초 -> Shorts 오분류로 49,984배)', () => {
+  const channel = makeChannel({
+    recentUploads: [
+      upload('s1', 100_000, 'PT45S'),
+      upload('s2', 120_000, 'PT50S'),
+      upload('s3', 110_000, 'PT30S'),
+      upload('l1', 40_000, 'PT12M'),
+      upload('l2', 60_000, 'PT9M'),
+      upload('l3', 50_000, 'PT15M'),
+      // 진행 중인 24시간 스트림 — 0초, 누적 조회수 거대
+      upload('live1', 100_000_000, 'P0D', 'live'),
+      // 예정 프리미어 — 길이는 있지만 조회수 0
+      upload('up1', 0, 'PT10M', 'upcoming'),
+    ],
+  });
+
+  test('라이브 대상은 성과배수·일평균 배수를 만들지 않는다 (null, 출처 null)', () => {
+    const video = makeVideo({ id: 'target', viewCount: 100_000_000, duration: 'P0D', liveStatus: 'live', channel });
+    const m = computeMetrics(video, NOW);
+    assert.equal(m.performanceMultiple, null);
+    assert.equal(m.baselineSource, null);
+    assert.equal(m.viewsPerDayMultiple, null);
+  });
+
+  test('예정 대상도 마찬가지다', () => {
+    const video = makeVideo({ id: 'target', viewCount: 0, duration: 'PT10M', liveStatus: 'upcoming', channel });
+    assert.equal(computeMetrics(video, NOW).performanceMultiple, null);
+  });
+
+  test('라이브·예정 동료는 Shorts·롱폼 기준선 어디에도 섞이지 않는다', () => {
+    const shorts = baselineFor(makeVideo({ id: 't', viewCount: 300_000, duration: 'PT40S', channel }));
+    assert.equal(shorts.peerCount, 3); // live1 제외
+    assert.equal(shorts.value, 110_000);
+    const long = baselineFor(makeVideo({ id: 't', viewCount: 300_000, duration: 'PT10M', channel }));
+    assert.equal(long.peerCount, 3); // up1(0뷰) 제외
+    assert.equal(long.value, 50_000);
+  });
+
+  test('라이브는 정렬에서 계산 불가로 뒤로 간다', () => {
+    const list = withMetrics(
+      [
+        makeVideo({ id: 'live', viewCount: 100_000_000, duration: 'P0D', liveStatus: 'live', channel }),
+        makeVideo({ id: 'normal', viewCount: 300_000, duration: 'PT10M', channel }),
+      ],
+      NOW,
+    );
+    const sorted = [...list].sort((a, b) => compareByMetric(a, b, 'performanceMultiple', 'desc'));
+    assert.equal(sorted[0].id, 'normal');
+  });
+});
+
 describe('viewsPerDayMultiple — 누적 배수의 짝', () => {
   // 실측: 검색 결과 영상은 동료보다 수년 오래돼 누적 배수가 일평균 배수보다 2~7배 컸다.
   test('일평균으로 비교하면 오래 누적된 영상의 배수가 내려간다', () => {
     const channel = makeChannel({
       recentUploads: [
-        { id: 'a', viewCount: 10_000, duration: 'PT10M', publishedAt: new Date(NOW - 10 * DAY_MS).toISOString() },
-        { id: 'b', viewCount: 10_000, duration: 'PT10M', publishedAt: new Date(NOW - 10 * DAY_MS).toISOString() },
-        { id: 'c', viewCount: 10_000, duration: 'PT10M', publishedAt: new Date(NOW - 10 * DAY_MS).toISOString() },
+        { id: 'a', viewCount: 10_000, duration: 'PT10M', publishedAt: new Date(NOW - 10 * DAY_MS).toISOString(), liveStatus: 'none' },
+        { id: 'b', viewCount: 10_000, duration: 'PT10M', publishedAt: new Date(NOW - 10 * DAY_MS).toISOString(), liveStatus: 'none' },
+        { id: 'c', viewCount: 10_000, duration: 'PT10M', publishedAt: new Date(NOW - 10 * DAY_MS).toISOString(), liveStatus: 'none' },
       ],
     });
     // 대상: 1,000일 된 영상, 100만 조회. 누적 배수 = 100 / 일평균 배수 = (1000/일) ÷ (1000/일) = 1

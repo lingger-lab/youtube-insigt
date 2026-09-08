@@ -1,4 +1,4 @@
-import type { ChannelSnapshot, RecentUpload, SearchFilters, VideoData } from '../../types/youtube.ts';
+import type { ChannelSnapshot, LiveStatus, RecentUpload, SearchFilters, VideoData } from '../../types/youtube.ts';
 import { youtubeGet, createStats, type CallStats } from './client.ts';
 import { YouTubeApiError } from './errors.ts';
 import {
@@ -96,6 +96,10 @@ async function collectVideoIds(
 
 type VideoCore = Omit<VideoData, 'channel'>;
 
+function toLiveStatus(raw: string | undefined): LiveStatus {
+  return raw === 'live' || raw === 'upcoming' ? raw : 'none';
+}
+
 /**
  * videos.list로 상세를 받는다. 50개씩 나눠 **병렬로** 부른다.
  *
@@ -135,6 +139,7 @@ async function fetchVideoDetails(videoIds: string[], stats: CallStats): Promise<
           tags: snippet?.tags ?? [],
           categoryId: snippet?.categoryId ?? '',
           hasCaption: item.contentDetails?.caption === 'true',
+          liveStatus: toLiveStatus(snippet?.liveBroadcastContent),
         };
       });
     }),
@@ -224,6 +229,7 @@ async function fetchRecentUploads(
       viewCount: toCount(item.statistics?.viewCount) ?? 0,
       duration: item.contentDetails?.duration ?? 'PT0S',
       publishedAt: item.snippet?.publishedAt ?? '',
+      liveStatus: toLiveStatus(item.snippet?.liveBroadcastContent),
     }));
   } catch (error) {
     if (error instanceof YouTubeApiError && error.code === 'NOT_FOUND') {

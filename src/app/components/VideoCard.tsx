@@ -10,7 +10,7 @@ import {
   truncateText,
   isOutperforming,
 } from '../utils/helpers';
-import { formatDuration, isShorts } from '../utils/videoUtils';
+import { formatDuration, getVideoType } from '../utils/videoUtils';
 import { buildSingleVideoPrompt, type Cohort } from '../utils/analysisPrompt';
 import CopyButton from './CopyButton';
 import TranscriptField from './TranscriptField';
@@ -33,8 +33,10 @@ interface VideoCardProps {
 export default function VideoCard({ video, displayMode, cohort, searchTerm, llm, highlightCutoff }: VideoCardProps) {
   const { metrics } = video;
   const outperforming = isOutperforming(metrics.performanceMultiple, highlightCutoff);
-  const isShortVideo = isShorts(video.duration);
-  const duration = formatDuration(video.duration);
+  const format = getVideoType(video.duration, video.liveStatus);
+  const isShortVideo = format === 'shorts';
+  const isLive = format === 'live';
+  const duration = isLive ? (video.liveStatus === 'upcoming' ? '예정' : 'LIVE') : formatDuration(video.duration);
 
   const watchUrl = `https://www.youtube.com/watch?v=${video.id}`;
 
@@ -73,11 +75,13 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
             : 'bg-gray-700 text-gray-300'
       }`}
       title={
-        (metrics.baselineSource === 'format-median'
-          ? `같은 채널의 최근 ${isShortVideo ? 'Shorts' : '롱폼'} ${metrics.baselinePeerCount}편 중앙값 대비 (누적)`
-          : metrics.baselineSource === 'lifetime-mean'
-            ? '채널 전체 평균 대비 (최근 업로드 목록 없음 — 포맷 구분 안 됨)'
-            : '기준선을 계산할 수 없음') +
+        (isLive
+          ? '라이브·예정 영상은 길이가 없고 조회수가 누적 방송분이라 기준선을 만들지 않음'
+          : metrics.baselineSource === 'format-median'
+            ? `같은 채널의 최근 ${isShortVideo ? 'Shorts' : '롱폼'} ${metrics.baselinePeerCount}편 중앙값 대비 (누적)`
+            : metrics.baselineSource === 'lifetime-mean'
+              ? '채널 전체 평균 대비 (최근 업로드 목록 없음 — 포맷 구분 안 됨)'
+              : '기준선을 계산할 수 없음') +
         (metrics.viewsPerDayMultiple !== null ? ` · 일평균 기준 ${formatMultiple(metrics.viewsPerDayMultiple)}` : '') +
         ` · 강조 기준: 이 검색 상위 20% 및 ${highlightCutoff.toFixed(1)}배 이상`
       }
@@ -113,6 +117,11 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
           {isShortVideo && (
             <div className="absolute top-2 left-2 bg-white text-black text-xs px-2 py-1 rounded font-bold">
               Shorts
+            </div>
+          )}
+          {isLive && (
+            <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded font-bold">
+              {video.liveStatus === 'upcoming' ? '예정' : 'LIVE'}
             </div>
           )}
         </div>
@@ -200,6 +209,11 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
         {isShortVideo && (
           <div className="absolute top-2 left-2 bg-white text-black text-xs px-2 py-1 rounded font-bold">
             Shorts
+          </div>
+        )}
+        {isLive && (
+          <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded font-bold">
+            {video.liveStatus === 'upcoming' ? '예정' : 'LIVE'}
           </div>
         )}
         {outperforming && (

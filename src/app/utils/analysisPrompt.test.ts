@@ -30,6 +30,7 @@ function makeVideo(id: string, multiple: number, overrides: Partial<VideoData> =
     tags: ['태그A', '태그B'],
     categoryId: '22',
     hasCaption: true,
+    liveStatus: 'none',
     channel: {
       channelId: 'ch1',
       subscriberCount: 50_000,

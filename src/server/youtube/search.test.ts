@@ -98,6 +98,8 @@ function installFetch(options: {
             snippet: {
               title: `영상 ${n}`,
               description: `설명 ${n}`,
+              // 7의 배수 영상은 진행 중 라이브
+              liveBroadcastContent: n % 7 === 0 && n > 0 ? 'live' : 'none',
               publishedAt: '2026-08-01T00:00:00Z',
               channelId: `c${n % channelCount}`,
               channelTitle: `채널 ${n % channelCount}`,
@@ -116,7 +118,7 @@ function installFetch(options: {
               ...(n % 3 === 0 ? {} : { likeCount: String(10 + n) }),
               commentCount: String(n),
             },
-            contentDetails: { duration: 'PT10M', caption: n % 2 === 0 ? 'true' : 'false' },
+            contentDetails: { duration: n % 7 === 0 && n > 0 ? 'P0D' : 'PT10M', caption: n % 2 === 0 ? 'true' : 'false' },
           };
         }),
       });
@@ -249,6 +251,14 @@ describe('searchYouTube — 필드 매핑', () => {
     assert.equal(first.categoryId, '22');
     assert.equal(first.hasCaption, true);
     assert.equal(first.commentCount, 0);
+  });
+
+  test('liveBroadcastContent를 liveStatus로 담는다 (없으면 none)', async () => {
+    installFetch({ totalVideos: 8, channelCount: 1 });
+    const { videos } = await searchYouTube('테스트', FILTERS, 50);
+    assert.equal(videos[0].liveStatus, 'none');
+    assert.equal(videos[7].liveStatus, 'live');
+    assert.equal(videos[7].duration, 'P0D');
   });
 
   test('videos.list에 snippet·statistics·contentDetails를 모두 요청한다', async () => {

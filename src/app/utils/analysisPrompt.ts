@@ -83,7 +83,7 @@ function tableRows(videos: VideoWithMetrics[], startIndex: number): string {
         cell(v.title),
         formatMultiple(v.metrics.performanceMultiple),
         formatViewCount(v.viewCount),
-        formatDuration(v.duration),
+        v.liveStatus === 'none' ? formatDuration(v.duration) : 'LIVE',
         formatPercent(v.metrics.likeRate),
         daysLabel(v),
         cell(tagsLabel(v)),

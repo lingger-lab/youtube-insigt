@@ -1,6 +1,12 @@
 import type { VideoData } from './youtubeApi';
+import type { LiveStatus } from '../../types/youtube';
 
-export type VideoType = 'shorts' | 'long';
+/**
+ * 'live'는 진행 중인 라이브와 예정(프리미어)을 모두 뜻한다. duration이 P0D(0초)로
+ * 오거나 liveBroadcastContent가 none이 아니면 여기에 든다. 길이가 없으니 Shorts도
+ * 롱폼도 아니며, 누적 조회수가 며칠치 방송분이라 다른 포맷과 비교할 수 없다.
+ */
+export type VideoType = 'shorts' | 'long' | 'live';
 
 export function getVideoDurationInSeconds(duration: string): number {
   // YouTube API returns duration in ISO 8601 format (P#DT#H#M#S)
@@ -30,22 +36,25 @@ export function getVideoDurationInSeconds(duration: string): number {
   return totalSeconds;
 }
 
-export function getVideoType(duration: string): VideoType {
+export function getVideoType(duration: string, liveStatus: LiveStatus = 'none'): VideoType {
+  if (liveStatus !== 'none') return 'live';
   const durationInSeconds = getVideoDurationInSeconds(duration);
-  
+  // 0초는 길이를 모르는 것이지 짧은 것이 아니다 (진행 중 라이브·예정은 P0D로 온다).
+  if (durationInSeconds === 0) return 'live';
+
   // YouTube Shorts는 보통 3분(180초) 이하로 분류 (실제 Shorts는 60초이지만 더 넓은 범위로 설정)
   return durationInSeconds <= 180 ? 'shorts' : 'long';
 }
 
 export function formatDuration(duration: string): string {
   const totalSeconds = getVideoDurationInSeconds(duration);
-  
+
   if (totalSeconds === 0) return '0:00';
-  
+
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  
+
   if (hours > 0) {
     return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   } else {
@@ -59,7 +68,7 @@ export function formatDuration(duration: string): string {
  * 제네릭인 이유: 지표가 붙은 목록(VideoWithMetrics)을 넣었을 때 VideoData로
  * 좁혀져 metrics가 사라지면 안 된다.
  */
-export function filterVideosByType<T extends Pick<VideoData, 'duration'>>(
+export function filterVideosByType<T extends Pick<VideoData, 'duration' | 'liveStatus'>>(
   videos: T[],
   type: 'home' | 'shorts' | 'long',
 ): T[] {
@@ -67,9 +76,6 @@ export function filterVideosByType<T extends Pick<VideoData, 'duration'>>(
     return videos;
   }
 
-  return videos.filter((video) => getVideoType(video.duration || 'PT0S') === type);
-}
-
-export function isShorts(duration: string): boolean {
-  return getVideoType(duration) === 'shorts';
+  // 라이브·예정은 Shorts에도 롱폼에도 속하지 않는다. '홈'에서만 보인다.
+  return videos.filter((video) => getVideoType(video.duration || 'PT0S', video.liveStatus) === type);
 }

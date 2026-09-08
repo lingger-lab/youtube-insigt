@@ -68,7 +68,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 // ---------- (a)(b)(c) 영상별 분해 ----------
 interface PerVideo {
   id: string;
-  format: 'shorts' | 'long';
+  format: 'shorts' | 'long' | 'live';
   targetAgeDays: number;
   view: number;
   peersAll: number;
@@ -121,7 +121,7 @@ function decompose(v: VideoWithMetrics): PerVideo | null {
 }
 
 function summarize(term: string, rows: PerVideo[]) {
-  const byFormat = (fmt: 'shorts' | 'long') => rows.filter((r) => r.format === fmt);
+  const byFormat = (fmt: 'shorts' | 'long' | 'live') => rows.filter((r) => r.format === fmt);
   const ratios = (xs: PerVideo[], num: (r: PerVideo) => number | null, den: (r: PerVideo) => number | null) =>
     xs.map((r) => { const a = num(r), b = den(r); return a && b && b > 0 ? a / b : null; }).filter((x): x is number => x !== null);
 
