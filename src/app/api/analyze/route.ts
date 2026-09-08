@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { runAnalysis, isLlmConfigured, configuredModel, LlmError, MAX_IMAGES } from '../../../server/llm/analyze.ts';
 import { VIDEO_ID_PATTERN } from '../../../server/youtube/thumbnail.ts';
+import { analyzeLimiter, clientKey } from '../../../server/rateLimit.ts';
 
 /**
  * 앱 내 LLM 분석 프록시 (선택 기능).
@@ -32,6 +33,15 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: { code: 'LLM_NOT_CONFIGURED', message: '앱 내 분석이 설정되지 않았습니다.' } },
       { status: 503 },
+    );
+  }
+
+  // 호출당 비용이 있다. IP당 10분에 3회 (인스턴스 단위 — rateLimit.ts 주석 참조).
+  const limit = analyzeLimiter.check(clientKey(request));
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: { code: 'RATE_LIMITED', message: `분석 요청이 너무 잦습니다. ${limit.retryAfterSec}초 뒤 다시 시도해 주세요.` } },
+      { status: 429, headers: { 'Retry-After': String(limit.retryAfterSec) } },
     );
   }
 

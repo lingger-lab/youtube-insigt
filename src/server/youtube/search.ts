@@ -1,4 +1,4 @@
-import type { ChannelSnapshot, RecentUpload, SearchFilters, VideoData } from '../../types/youtube.ts';
+import type { ChannelSnapshot, LiveStatus, RecentUpload, SearchFilters, VideoData } from '../../types/youtube.ts';
 import { youtubeGet, createStats, type CallStats } from './client.ts';
 import { YouTubeApiError } from './errors.ts';
 import {
@@ -57,30 +57,36 @@ async function collectVideoIds(
   const seen = new Set<string>();
   let pageToken = '';
 
-  while (ids.length < total) {
+  // 검색 호출 수는 페이지 수로 고정한다. 실측에서 search.list가 한 페이지에 50개 미만을
+  // 돌려주거나 페이지 간 중복을 내면, 개수를 채우려 1개짜리 페이지를 더 부르다가
+  // 50개 검색에 검색 호출 4회를 쓴 사례가 있었다("홈카페 레시피": 46 -> 4 -> 1 -> 1).
+  // 검색 버킷은 하루 100회가 전부라, 개수를 정확히 채우는 것보다 비용을 정확히
+  // 지키는 편이 낫다. 결과가 depth보다 적을 수 있고, UI의 "검색 N회 소비"는 그대로 참이다.
+  const maxPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  let page = 0;
+
+  while (ids.length < total && page < maxPages) {
+    page += 1;
     const params = new URLSearchParams({
       part: 'snippet',
       type: 'video',
       q: term,
       order: filters.order,
       videoDuration: filters.videoDuration,
-      maxResults: String(Math.min(PAGE_SIZE, total - ids.length)),
+      maxResults: String(PAGE_SIZE),
     });
     if (filters.publishedAfter) params.append('publishedAfter', filters.publishedAfter);
     if (pageToken) params.append('pageToken', pageToken);
 
     const payload = parseOrThrow(SearchResponseSchema, await youtubeGet('search', params, stats), 'search');
 
-    let added = 0;
     for (const item of payload.items ?? []) {
       const id = item.id?.videoId;
       if (!id || seen.has(id)) continue;
       seen.add(id);
       ids.push(id);
-      added += 1;
     }
 
-    if (added === 0 && !payload.nextPageToken) break;
     if (!payload.nextPageToken) break;
     pageToken = payload.nextPageToken;
   }
@@ -89,6 +95,10 @@ async function collectVideoIds(
 }
 
 type VideoCore = Omit<VideoData, 'channel'>;
+
+function toLiveStatus(raw: string | undefined): LiveStatus {
+  return raw === 'live' || raw === 'upcoming' ? raw : 'none';
+}
 
 /**
  * videos.list로 상세를 받는다. 50개씩 나눠 **병렬로** 부른다.
@@ -129,6 +139,7 @@ async function fetchVideoDetails(videoIds: string[], stats: CallStats): Promise<
           tags: snippet?.tags ?? [],
           categoryId: snippet?.categoryId ?? '',
           hasCaption: item.contentDetails?.caption === 'true',
+          liveStatus: toLiveStatus(snippet?.liveBroadcastContent),
         };
       });
     }),
@@ -218,6 +229,7 @@ async function fetchRecentUploads(
       viewCount: toCount(item.statistics?.viewCount) ?? 0,
       duration: item.contentDetails?.duration ?? 'PT0S',
       publishedAt: item.snippet?.publishedAt ?? '',
+      liveStatus: toLiveStatus(item.snippet?.liveBroadcastContent),
     }));
   } catch (error) {
     if (error instanceof YouTubeApiError && error.code === 'NOT_FOUND') {

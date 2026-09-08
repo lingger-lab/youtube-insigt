@@ -21,13 +21,21 @@ export interface SearchFilters {
 /** 검색 깊이. 할당량이 실질 상한이라 사용자가 직접 고른다. */
 export type SearchDepth = 50 | 100 | 200;
 
+/**
+ * 방송 상태. 'live'(진행 중)와 'upcoming'(예정·프리미어)은 duration이 P0D이거나
+ * 조회수가 0이라 Shorts/롱폼 어디에도 속하지 않는다. 실측(2026-09-08)에서
+ * 24시간 뉴스 스트림이 0초 -> Shorts로 분류되어 성과배수 49,984배로 상위를 독식했다.
+ */
+export type LiveStatus = 'none' | 'live' | 'upcoming';
+
 /** 채널의 최근 업로드 한 편. 기준선 계산용 최소 사실만. */
 export interface RecentUpload {
   id: string;
   viewCount: number;
-  /** ISO 8601 (PT#M#S). 포맷(Shorts/롱폼) 판별은 metrics에서 한다. */
+  /** ISO 8601 (PT#M#S). 포맷(Shorts/롱폼/라이브) 판별은 videoUtils에서 한다. */
   duration: string;
   publishedAt: string;
+  liveStatus: LiveStatus;
 }
 
 /**
@@ -80,6 +88,7 @@ export interface VideoData {
   categoryId: string;
   /** 자막 트랙 존재 여부. 내용은 소유자만 받을 수 있다. */
   hasCaption: boolean;
+  liveStatus: LiveStatus;
   channel: ChannelSnapshot;
 }
 
@@ -102,6 +111,12 @@ export interface VideoMetrics {
   baselinePeerCount: number;
   /** 업로드 후 하루당 조회수. 오래된 영상의 상위 독식을 교정한다. */
   viewsPerDay: number;
+  /**
+   * 일평균 조회수 ÷ 같은 채널·같은 포맷 동료들의 일평균 중앙값.
+   * 실측에서 검색 결과 영상은 동료보다 수년 오래돼 누적 배수(performanceMultiple)가
+   * 이 값보다 p50 기준 2~7배 컸다. 어느 쪽도 단독 진실이 아니라 둘을 나란히 둔다.
+   */
+  viewsPerDayMultiple: number | null;
   daysSincePublish: number;
   /** 좋아요 ÷ 조회수 */
   likeRate: number | null;

@@ -6,7 +6,6 @@ import {
   getVideoType,
   formatDuration,
   filterVideosByType,
-  isShorts,
 } from './videoUtils.ts';
 
 /** 테스트마다 독립된 객체를 만들기 위한 팩토리 (정적 픽스처 공유 금지) */
@@ -27,6 +26,7 @@ function makeVideo(overrides: Partial<VideoData> = {}): VideoData {
     tags: [],
     categoryId: '22',
     hasCaption: false,
+    liveStatus: 'none',
     channel: {
       channelId: 'ch1',
       subscriberCount: 100,
@@ -96,9 +96,18 @@ describe('getVideoType', () => {
     assert.equal(getVideoType('P1DT2H'), 'long');
   });
 
-  test('isShorts는 getVideoType과 일치한다', () => {
-    assert.equal(isShorts('PT3M'), true);
-    assert.equal(isShorts('PT3M1S'), false);
+  // 실측(2026-09-08): 진행 중 라이브·예정 영상은 duration이 P0D로 온다. 0초를 Shorts로
+  // 보면 24시간 뉴스 스트림(누적 1억 뷰)이 채널 Shorts 중앙값과 비교되어 상위를 독식한다.
+  test('0초(P0D·PT0S·빈값)는 Shorts가 아니라 live다', () => {
+    assert.equal(getVideoType('P0D'), 'live');
+    assert.equal(getVideoType('PT0S'), 'live');
+    assert.equal(getVideoType(''), 'live');
+  });
+
+  test('liveBroadcastContent가 live/upcoming이면 길이가 있어도 live다 (예정된 업로드 프리미어)', () => {
+    assert.equal(getVideoType('PT10M', 'upcoming'), 'live');
+    assert.equal(getVideoType('PT30S', 'live'), 'live');
+    assert.equal(getVideoType('PT10M', 'none'), 'long');
   });
 });
 
@@ -142,10 +151,17 @@ describe('filterVideosByType', () => {
     assert.deepEqual(result.map((v) => v.id), ['b']);
   });
 
-  test('duration이 없으면 shorts로 취급한다 (기존 동작)', () => {
+  test('길이를 모르는(0초) 영상은 Shorts에도 롱폼에도 넣지 않고 홈에서만 보인다', () => {
     const videos = [makeVideo({ id: 'a', duration: undefined })];
-    assert.equal(filterVideosByType(videos, 'shorts').length, 1);
+    assert.equal(filterVideosByType(videos, 'shorts').length, 0);
     assert.equal(filterVideosByType(videos, 'long').length, 0);
+    assert.equal(filterVideosByType(videos, 'home').length, 1);
+  });
+
+  test('예정(upcoming) 영상은 길이가 있어도 Shorts·롱폼에서 빠진다', () => {
+    const videos = [makeVideo({ id: 'a', duration: 'PT10M', liveStatus: 'upcoming' })];
+    assert.equal(filterVideosByType(videos, 'long').length, 0);
+    assert.equal(filterVideosByType(videos, 'home').length, 1);
   });
 
   test('원본 배열을 변경하지 않는다', () => {

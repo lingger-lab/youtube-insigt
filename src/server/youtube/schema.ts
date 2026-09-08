@@ -34,6 +34,8 @@ export const VideoItemSchema = z.object({
       channelTitle: z.string().optional(),
       tags: z.array(z.string()).optional(),
       categoryId: z.string().optional(),
+      // 'none' | 'live' | 'upcoming'. 라이브·예정 영상은 duration이 P0D로 온다.
+      liveBroadcastContent: z.string().optional(),
       thumbnails: z
         .object({
           medium: ThumbnailSchema,

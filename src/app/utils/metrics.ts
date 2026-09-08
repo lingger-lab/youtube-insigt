@@ -75,10 +75,14 @@ export interface Baseline {
  *   통계 기반 평균(peerAverageViews). 열등한 기준이며 source로 드러낸다.
  */
 export function baselineFor(video: VideoData): Baseline {
+  const format = getVideoType(video.duration, video.liveStatus);
+  // 라이브·예정은 기준선을 만들지 않는다. 누적 조회수가 며칠치 방송분이거나 아직 0이라
+  // 어떤 동료와 비교해도 뜻이 없고, 채널 전체 평균으로 내려가도 마찬가지다.
+  if (format === 'live') return { value: null, source: null, peerCount: 0 };
+
   const uploads = video.channel.recentUploads;
   if (uploads) {
-    const format = getVideoType(video.duration);
-    const peers = uploads.filter((u) => u.id !== video.id && getVideoType(u.duration) === format);
+    const peers = uploads.filter((u) => u.id !== video.id && getVideoType(u.duration, u.liveStatus) === format);
     if (peers.length >= MIN_FORMAT_PEERS) {
       const value = median(peers.map((u) => u.viewCount));
       return { value: value > 0 ? value : null, source: value > 0 ? 'format-median' : null, peerCount: peers.length };
@@ -90,9 +94,27 @@ export function baselineFor(video: VideoData): Baseline {
   return { value: lifetime, source: 'lifetime-mean', peerCount: (video.channel.videoCount ?? 1) - 1 };
 }
 
+/**
+ * 일평균 배수의 분모: 같은 채널·같은 포맷 동료의 일평균 중앙값 (본 영상 제외, 동료 ≥3편).
+ * 누적 배수는 오래된 대상에 유리하고, 일평균 배수는 갓 올라온 대상에 유리하다.
+ */
+function peerViewsPerDayMedian(video: VideoData, now: number): number | null {
+  const uploads = video.channel.recentUploads;
+  if (!uploads) return null;
+  const format = getVideoType(video.duration, video.liveStatus);
+  if (format === 'live') return null;
+  const rates = uploads
+    .filter((u) => u.id !== video.id && getVideoType(u.duration, u.liveStatus) === format)
+    .map((u) => u.viewCount / Math.max(1, daysSincePublish(u.publishedAt, now)));
+  if (rates.length < MIN_FORMAT_PEERS) return null;
+  const m = median(rates);
+  return m > 0 ? m : null;
+}
+
 export function computeMetrics(video: VideoData, now: number = Date.now()): VideoMetrics {
   const days = daysSincePublish(video.publishedAt, now);
   const baseline = baselineFor(video);
+  const viewsPerDay = video.viewCount / Math.max(1, days);
 
   return {
     // 주지표: 같은 채널의 **다른** 영상들이 평소 받는 조회수 대비 몇 배인가.
@@ -104,7 +126,8 @@ export function computeMetrics(video: VideoData, now: number = Date.now()): Vide
     // 채널 평균은 영상들의 '누적' 조회수 평균이라 신작에 불리하다.
     // 그 편향을 보정할 짝으로 하루당 조회수를 함께 둔다.
     // 업로드 당일 영상은 0일이 되므로 최소 1일로 본다(과대평가 방지).
-    viewsPerDay: video.viewCount / Math.max(1, days),
+    viewsPerDay,
+    viewsPerDayMultiple: ratio(viewsPerDay, peerViewsPerDayMedian(video, now)),
     daysSincePublish: days,
 
     likeRate: ratio(video.likeCount, video.viewCount),

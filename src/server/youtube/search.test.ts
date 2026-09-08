@@ -21,6 +21,8 @@ function installFetch(options: {
   uploadsPerChannel?: number;
   /** 404 playlistNotFound 를 돌려줄 재생목록 ID */
   missingPlaylists?: Set<string>;
+  /** 첫 페이지가 이만큼만 돌려준다 (실제 API가 자주 그런다). nextPageToken은 준다. */
+  shortFirstPage?: number;
 }) {
   const {
     totalVideos,
@@ -28,6 +30,7 @@ function installFetch(options: {
     hiddenChannels = new Set<string>(),
     uploadsPerChannel = 50,
     missingPlaylists = new Set<string>(),
+    shortFirstPage,
   } = options;
 
   globalThis.fetch = (async (url: string | URL) => {
@@ -40,7 +43,8 @@ function installFetch(options: {
       const page = Number(params.get('pageToken') ?? '0');
       const size = Number(params.get('maxResults'));
       const start = page * 50;
-      const count = Math.max(0, Math.min(size, totalVideos - start));
+      let count = Math.max(0, Math.min(size, totalVideos - start));
+      if (page === 0 && shortFirstPage !== undefined) count = Math.min(count, shortFirstPage);
       const items = Array.from({ length: count }, (_, i) => ({ id: { videoId: `v${start + i}` } }));
       const consumed = start + count;
       return jsonResponse({
@@ -94,6 +98,8 @@ function installFetch(options: {
             snippet: {
               title: `영상 ${n}`,
               description: `설명 ${n}`,
+              // 7의 배수 영상은 진행 중 라이브
+              liveBroadcastContent: n % 7 === 0 && n > 0 ? 'live' : 'none',
               publishedAt: '2026-08-01T00:00:00Z',
               channelId: `c${n % channelCount}`,
               channelTitle: `채널 ${n % channelCount}`,
@@ -112,7 +118,7 @@ function installFetch(options: {
               ...(n % 3 === 0 ? {} : { likeCount: String(10 + n) }),
               commentCount: String(n),
             },
-            contentDetails: { duration: 'PT10M', caption: n % 2 === 0 ? 'true' : 'false' },
+            contentDetails: { duration: n % 7 === 0 && n > 0 ? 'P0D' : 'PT10M', caption: n % 2 === 0 ? 'true' : 'false' },
           };
         }),
       });
@@ -209,6 +215,22 @@ describe('searchYouTube — 호출 구조', () => {
     assert.equal(countBy('playlistItems'), 0);
   });
 
+  // 실측: search.list는 한 페이지에 50개 미만을 자주 돌려준다. 개수를 채우려
+  // 페이지를 더 부르면 50개 검색이 검색 버킷을 4회 쓴다. 비용을 지키는 쪽을 택한다.
+  test('첫 페이지가 50개 미만이어도 검색 호출은 페이지 수(1회)로 고정하고 결과는 그만큼만', async () => {
+    installFetch({ totalVideos: 500, channelCount: 5, shortFirstPage: 46 });
+    const { videos, stats } = await searchYouTube('테스트', FILTERS, 50);
+    assert.equal(stats.searchCalls, 1);
+    assert.equal(videos.length, 46);
+  });
+
+  test('200개 검색은 첫 페이지가 짧아도 검색 호출을 4회로 고정한다', async () => {
+    installFetch({ totalVideos: 500, channelCount: 5, shortFirstPage: 40 });
+    const { videos, stats } = await searchYouTube('테스트', FILTERS, 200);
+    assert.equal(stats.searchCalls, 4);
+    assert.equal(videos.length, 40 + 50 + 50 + 50);
+  });
+
   test('요청한 개수보다 결과가 적으면 있는 만큼만 돌려준다', async () => {
     installFetch({ totalVideos: 30, channelCount: 3 });
     const { videos } = await searchYouTube('테스트', FILTERS, 200);
@@ -229,6 +251,14 @@ describe('searchYouTube — 필드 매핑', () => {
     assert.equal(first.categoryId, '22');
     assert.equal(first.hasCaption, true);
     assert.equal(first.commentCount, 0);
+  });
+
+  test('liveBroadcastContent를 liveStatus로 담는다 (없으면 none)', async () => {
+    installFetch({ totalVideos: 8, channelCount: 1 });
+    const { videos } = await searchYouTube('테스트', FILTERS, 50);
+    assert.equal(videos[0].liveStatus, 'none');
+    assert.equal(videos[7].liveStatus, 'live');
+    assert.equal(videos[7].duration, 'P0D');
   });
 
   test('videos.list에 snippet·statistics·contentDetails를 모두 요청한다', async () => {

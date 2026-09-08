@@ -76,13 +76,29 @@ export function formatPercent(value: number | null): string {
 }
 
 /**
- * 표시용 강조 기준: 채널 평소 조회수의 2배 이상.
+ * 표시용 강조 기준 — 두 조건을 모두 만족할 때만 강조한다.
  *
- * 검증된 모델이 아니라 눈에 띄게 하기 위한 표시 임계값이다. 이 숫자에
- * 통계적 의미를 부여하지 말 것.
+ * 1. 이 검색 결과 안에서 성과배수 상위 OUTPERFORM_TOP_SHARE 안에 든다
+ * 2. 절대값이 OUTPERFORM_FLOOR 배 이상이다
+ *
+ * 절대 임계값 하나(예전 2배)는 실측에서 무의미했다. 검색 결과는 이미 YouTube가
+ * 고른 승자 집합이라 성과배수 중앙값이 키워드에 따라 12~29배였고, 2배 기준으로는
+ * 78~94%에 불꽃이 붙었다. 분포가 키워드마다 달라 절대값 하나로는 맞출 수 없으므로
+ * 결과 집합 안의 상대 위치를 쓰되, 전부 평범한 검색에서도 20%가 강조되는 일을
+ * 막기 위해 절대 하한을 둔다. 통계적 의미는 없고 눈에 띄게 하기 위한 눈금이다.
  */
-export const OUTPERFORM_THRESHOLD = 2;
+export const OUTPERFORM_TOP_SHARE = 0.2;
+export const OUTPERFORM_FLOOR = 5;
 
-export function isOutperforming(performanceMultiple: number | null): boolean {
-  return performanceMultiple !== null && performanceMultiple >= OUTPERFORM_THRESHOLD;
+/** 결과 집합의 성과배수 목록에서 강조 컷오프를 구한다. 계산 불가(null)는 뺀다. */
+export function outperformCutoff(multiples: (number | null)[]): number {
+  const xs = multiples.filter((m): m is number => m !== null).sort((a, b) => a - b);
+  if (xs.length === 0) return OUTPERFORM_FLOOR;
+  // 오름차순에서 index floor(n·0.8) 이상이 상위 20%다. 예: n=10 -> xs[8], 즉 9·10번째.
+  const idx = Math.min(xs.length - 1, Math.floor(xs.length * (1 - OUTPERFORM_TOP_SHARE)));
+  return Math.max(OUTPERFORM_FLOOR, xs[idx]);
+}
+
+export function isOutperforming(performanceMultiple: number | null, cutoff: number): boolean {
+  return performanceMultiple !== null && performanceMultiple >= cutoff;
 }

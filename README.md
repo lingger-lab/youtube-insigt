@@ -1,19 +1,23 @@
 # YouTube Native + High-End Insight Ver 3.0
 
-YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독자수 기반의 Viral Score(떡상지수)를 분석하는 Next.js 기반 통합 분석 웹앱입니다.
+YouTube 검색 결과를 **채널 평소 성과 대비 얼마나 터졌는지**(성과배수)로 정렬하고,
+상위군/하위군 대조 프롬프트와 썸네일 시트를 만들어 LLM에 붙여넣는 Next.js 앱입니다.
 
 ## 🚀 주요 기능
 
-- **YouTube API 필터 완전 매핑**: order, publishedAfter, videoDuration 등
-- **Deep Search**: 최대 200개 결과 검색
-- **클라이언트 정렬**: 조회수, 구독자, 떡상지수, 최신순
-- **Viral Score 계산 및 시각화**: 조회수 ÷ 구독자수
-- **카드형/리스트형 전환 UI**
-- **Dark Mode + YouTube 감성 디자인**
+- **YouTube API 필터 매핑**: order, publishedAfter, videoDuration
+- **검색 깊이 선택**: 50 / 100 / 200 — 검색 버킷(하루 100회) 소비량을 UI에 표시
+- **성과배수**: 조회수 ÷ 같은 채널·같은 포맷(Shorts/롱폼) 최근 영상의 중앙값. 라이브·예정은 제외
+- **일평균 배수·좋아요율·댓글율** 병기. 계산 불가는 0이 아니라 '측정불가'
+- **대조군 프롬프트**: 성과배수 상위군/하위군을 표로 묶어 LLM에 붙여넣기 (지어내기 금지 규칙 포함)
+- **썸네일 컨택트시트**: 상위·하위군 썸네일을 `#번호` 격자 한 장으로 클립보드에 복사
+- **자막 붙여넣기**: 있을 때만 대본 구조 분석 요청
+- **앱 내 LLM 분석(선택)**: `ANTHROPIC_API_KEY`가 있을 때만 활성, 응답마다 토큰·추정 비용 표시
+- 카드형/리스트형 전환, Dark Mode, 모바일 드로어
 
 ## 🛠️ 기술 스택
 
-- **Framework**: Next.js 14+ (App Router)
+- **Framework**: Next.js 16 (App Router, Turbopack)
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
 - **API**: YouTube Data API v3
@@ -73,48 +77,63 @@ YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독�
 
 ```
 src/
-  types/
-    youtube.ts             # 서버·클라이언트 공유 타입의 단일 출처
+  types/youtube.ts         # 서버·클라이언트 공유 타입의 단일 출처
   server/                  # 서버 전용. API 키는 이 경계 밖으로 나가지 않는다
     youtube/
-      client.ts            # fetch 래퍼 (타임아웃·재시도·할당량 집계)
-      errors.ts            # 실패 분류 (할당량 소진을 별도로 드러냄)
-      search.ts            # 검색·통계 수집
+      client.ts            # fetch 래퍼 (타임아웃·재시도·두 버킷 할당량 집계)
+      errors.ts            # 실패 분류 (검색/공용 버킷 소진을 따로 드러냄)
+      schema.ts            # zod 경계 검증
+      search.ts            # 검색 → 영상 통계 → 채널 통계 + 채널당 최근 업로드 50편
+      thumbnail.ts         # i.ytimg.com 수신 (프록시·LLM 첨부 공용)
+    llm/analyze.ts         # 앱 내 LLM 분석 (@anthropic-ai/sdk, 선택 기능)
+    rateLimit.ts           # 인메모리 레이트리밋 (IP당 10분 검색 10회 / LLM 3회)
   app/
     api/
       search/route.ts      # 검색 프록시 (POST)
+      thumbnail/route.ts   # 썸네일 프록시 (CORS 우회)
+      analyze/route.ts     # 앱 내 LLM 분석 (GET 상태 / POST)
     components/
-      Header.tsx           # 상단 바
-      Sidebar.tsx          # 영상 유형 필터 사이드바
-      Filters.tsx          # 검색 필터 컴포넌트
-      SearchInput.tsx      # 검색 입력 컴포넌트
-      SortBar.tsx          # 정렬 바 컴포넌트
-      DisplayModeToggle.tsx # 표시 모드 토글
-      VideoCard.tsx        # 비디오 카드 컴포넌트
+      VideoCard.tsx        # 카드: 성과배수·일평균 배수·LIVE 배지·자막·AI분석
+      SearchDepthPicker.tsx  # 검색 깊이 + 검색 버킷 소비 표시
+      ThumbnailSheetButton.tsx # 썸네일 컨택트시트 복사
+      TranscriptField.tsx  # 자막 붙여넣기
+      AnalyzeButton.tsx    # 앱 내 LLM 분석 + 결과 패널
+      CopyButton.tsx       # 클립보드 텍스트 복사 + aria-live
+      Header / Sidebar / Filters / SearchInput / SortBar / DisplayModeToggle
     utils/
-      youtubeApi.ts        # 클라이언트: /api/search 호출 + 타입 재수출
-      videoUtils.ts        # 길이 파싱 / Shorts 판별
-      helpers.ts           # 표시용 포맷터
-    globals.css            # 글로벌 스타일
+      metrics.ts           # 파생 지표 (성과배수·일평균 배수·기준선 출처)
+      analysisPrompt.ts    # 대조군 포함 프롬프트
+      contactSheet.ts      # 썸네일 격자 합성 + 클립보드 이미지
+      quota.ts             # 할당량 산수
+      helpers.ts           # 포맷터 + 강조 컷오프
+      videoUtils.ts        # 길이 파싱 / Shorts·롱폼·라이브 판별
+      llmClient.ts         # /api/analyze 호출
+      youtubeApi.ts        # /api/search 호출 + 타입 재수출
     page.tsx               # 메인 페이지
+scripts/
+  measure.ts               # 실측 1차 (npm run measure)
+  measure-isolate.ts       # 실측 2차 (효과 분리)
+docs/
+  ISSUES.md                # 미해결 이슈 · 검증 체크리스트 · 보류 설계
 ```
 
 테스트는 소스 옆에 둡니다(`helpers.ts` ↔ `helpers.test.ts`).
 
 ## 🎯 사용자 흐름
 
-1. 사용자 접속
-2. 필터 선택 + 검색어 입력
-3. Deep Search 실행 (최대 200개)
-4. 결과 정렬/시각화
-5. Viral Score 표시
-6. YouTube 원본 이동
+1. 검색어 입력 + 검색 깊이(50/100/200) 선택
+2. 결과를 성과배수 순으로 확인 (정렬 기준 변경 가능)
+3. "시장 분석 복사" + "썸네일 시트 복사" → LLM 입력창에 둘 다 붙여넣기
+4. 개별 영상은 "AI분석" (자막을 붙여넣으면 대본 구조까지)
+5. 카드 클릭 → YouTube 원본
 
-## 🔥 Viral Score 기능
+## 🔥 성과배수
 
-- **계산 공식**: 조회수 ÷ 구독자수
-- **시각적 표시**: 1.0 이상일 때 빨간색 그라데이션 + 불꽃 애니메이션
-- **정렬 기능**: 떡상지수 기준 오름차순/내림차순 정렬
+- **정의**: 조회수 ÷ 같은 채널·같은 포맷 최근 영상(최대 50편, 본 영상 제외)의 **중앙값**.
+  구독자수는 비공개·반올림 문제로 분모로 쓰지 않습니다. 상세: `CLAUDE.md` 지표 정의
+- **강조(🔥)**: 이 검색 결과 안의 상위 20% **이면서** 5배 이상. 절대값이 아닌 상대 기준입니다 —
+  검색 결과는 이미 YouTube가 고른 승자 집합이라 중앙값이 키워드에 따라 12~29배입니다
+- **한계**: 검색 결과 영상은 동료보다 수년 오래돼 누적 배수가 유리합니다. 일평균 배수를 함께 보세요
 
 ## 🎨 UI/UX 특징
 

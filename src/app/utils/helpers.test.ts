@@ -9,6 +9,8 @@ import {
   formatMultiple,
   formatPercent,
   isOutperforming,
+  outperformCutoff,
+  OUTPERFORM_FLOOR,
 } from './helpers.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -86,15 +88,31 @@ describe('formatPercent', () => {
   });
 });
 
-describe('isOutperforming', () => {
-  test('채널 평소의 2배 이상이면 강조한다', () => {
-    assert.equal(isOutperforming(2), true);
-    assert.equal(isOutperforming(5.5), true);
+describe('outperformCutoff / isOutperforming', () => {
+  // 실측(2026-09-08): 검색 결과의 성과배수 중앙값이 12~29배라 절대 2배 기준은
+  // 78~94%를 강조했다. 결과 집합 안의 상위 20%를 쓴다.
+  test('결과 집합의 상위 20%를 가르는 값을 컷오프로 쓴다', () => {
+    const multiples = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const cutoff = outperformCutoff(multiples);
+    assert.equal(cutoff, 9); // 상위 20% = {9, 10}
+    assert.equal(multiples.filter((m) => isOutperforming(m, cutoff)).length, 2);
   });
 
-  test('2배 미만이거나 측정 불가면 강조하지 않는다', () => {
-    assert.equal(isOutperforming(1.9), false);
-    assert.equal(isOutperforming(null), false);
+  test('전부 평범한 결과에서는 절대 하한이 강조를 막는다', () => {
+    const multiples = [0.5, 0.8, 1.0, 1.2, 1.5];
+    const cutoff = outperformCutoff(multiples);
+    assert.equal(cutoff, OUTPERFORM_FLOOR);
+    assert.equal(multiples.some((m) => isOutperforming(m, cutoff)), false);
+  });
+
+  test('계산 불가는 컷오프 계산에서 빠지고 강조되지도 않는다', () => {
+    const cutoff = outperformCutoff([null, 10, 20, 30, 40, 50]);
+    assert.equal(isOutperforming(null, cutoff), false);
+    assert.equal(cutoff, 50);
+  });
+
+  test('빈 목록이면 절대 하한을 돌려준다', () => {
+    assert.equal(outperformCutoff([]), OUTPERFORM_FLOOR);
   });
 });
 

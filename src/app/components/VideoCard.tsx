@@ -10,7 +10,7 @@ import {
   truncateText,
   isOutperforming,
 } from '../utils/helpers';
-import { formatDuration, isShorts } from '../utils/videoUtils';
+import { formatDuration, getVideoType } from '../utils/videoUtils';
 import { buildSingleVideoPrompt, type Cohort } from '../utils/analysisPrompt';
 import CopyButton from './CopyButton';
 import TranscriptField from './TranscriptField';
@@ -26,13 +26,17 @@ interface VideoCardProps {
   searchTerm: string;
   /** 앱 내 LLM 분석 가능 여부. 서버에 키가 없으면 버튼이 잠긴다. */
   llm: LlmStatus;
+  /** 강조 컷오프. 결과 집합 상위 20% + 절대 하한. page.tsx가 계산한다. */
+  highlightCutoff: number;
 }
 
-export default function VideoCard({ video, displayMode, cohort, searchTerm, llm }: VideoCardProps) {
+export default function VideoCard({ video, displayMode, cohort, searchTerm, llm, highlightCutoff }: VideoCardProps) {
   const { metrics } = video;
-  const outperforming = isOutperforming(metrics.performanceMultiple);
-  const isShortVideo = isShorts(video.duration);
-  const duration = formatDuration(video.duration);
+  const outperforming = isOutperforming(metrics.performanceMultiple, highlightCutoff);
+  const format = getVideoType(video.duration, video.liveStatus);
+  const isShortVideo = format === 'shorts';
+  const isLive = format === 'live';
+  const duration = isLive ? (video.liveStatus === 'upcoming' ? '예정' : 'LIVE') : formatDuration(video.duration);
 
   const watchUrl = `https://www.youtube.com/watch?v=${video.id}`;
 
@@ -71,11 +75,15 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm 
             : 'bg-gray-700 text-gray-300'
       }`}
       title={
-        metrics.baselineSource === 'format-median'
-          ? `같은 채널의 최근 ${isShortVideo ? 'Shorts' : '롱폼'} ${metrics.baselinePeerCount}편 중앙값 대비`
-          : metrics.baselineSource === 'lifetime-mean'
-            ? '채널 전체 평균 대비 (최근 업로드 목록 없음 — 포맷 구분 안 됨)'
-            : '기준선을 계산할 수 없음'
+        (isLive
+          ? '라이브·예정 영상은 길이가 없고 조회수가 누적 방송분이라 기준선을 만들지 않음'
+          : metrics.baselineSource === 'format-median'
+            ? `같은 채널의 최근 ${isShortVideo ? 'Shorts' : '롱폼'} ${metrics.baselinePeerCount}편 중앙값 대비 (누적)`
+            : metrics.baselineSource === 'lifetime-mean'
+              ? '채널 전체 평균 대비 (최근 업로드 목록 없음 — 포맷 구분 안 됨)'
+              : '기준선을 계산할 수 없음') +
+        (metrics.viewsPerDayMultiple !== null ? ` · 일평균 기준 ${formatMultiple(metrics.viewsPerDayMultiple)}` : '') +
+        ` · 강조 기준: 이 검색 상위 20% 및 ${highlightCutoff.toFixed(1)}배 이상`
       }
     >
       {outperforming && <span aria-hidden="true">🔥</span>}
@@ -111,6 +119,11 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm 
               Shorts
             </div>
           )}
+          {isLive && (
+            <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded font-bold">
+              {video.liveStatus === 'upcoming' ? '예정' : 'LIVE'}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 min-w-0">
@@ -141,6 +154,11 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm 
             <span title="업로드 후 하루당 평균 조회수">
               일평균 {formatViewCount(Math.round(metrics.viewsPerDay))}
             </span>
+            {metrics.viewsPerDayMultiple !== null && (
+              <span title="일평균 조회수 ÷ 같은 채널·같은 포맷 동료의 일평균 중앙값. 누적 배수는 오래된 영상에 유리하므로 함께 본다">
+                일평균 배수 {formatMultiple(metrics.viewsPerDayMultiple)}
+              </span>
+            )}
             <span title="좋아요 ÷ 조회수">좋아요율 {formatPercent(metrics.likeRate)}</span>
             {video.hasCaption && <span className="text-gray-500">자막 있음</span>}
           </div>
@@ -191,6 +209,11 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm 
         {isShortVideo && (
           <div className="absolute top-2 left-2 bg-white text-black text-xs px-2 py-1 rounded font-bold">
             Shorts
+          </div>
+        )}
+        {isLive && (
+          <div className="absolute top-2 left-2 bg-red-600 text-white text-xs px-2 py-1 rounded font-bold">
+            {video.liveStatus === 'upcoming' ? '예정' : 'LIVE'}
           </div>
         )}
         {outperforming && (
