@@ -208,6 +208,33 @@ describe('baselineFor — 같은 포맷 중앙값 (Shorts 오염 수정)', () =>
   });
 });
 
+describe('viewsPerDayMultiple — 누적 배수의 짝', () => {
+  // 실측: 검색 결과 영상은 동료보다 수년 오래돼 누적 배수가 일평균 배수보다 2~7배 컸다.
+  test('일평균으로 비교하면 오래 누적된 영상의 배수가 내려간다', () => {
+    const channel = makeChannel({
+      recentUploads: [
+        { id: 'a', viewCount: 10_000, duration: 'PT10M', publishedAt: new Date(NOW - 10 * DAY_MS).toISOString() },
+        { id: 'b', viewCount: 10_000, duration: 'PT10M', publishedAt: new Date(NOW - 10 * DAY_MS).toISOString() },
+        { id: 'c', viewCount: 10_000, duration: 'PT10M', publishedAt: new Date(NOW - 10 * DAY_MS).toISOString() },
+      ],
+    });
+    // 대상: 1,000일 된 영상, 100만 조회. 누적 배수 = 100 / 일평균 배수 = (1000/일) ÷ (1000/일) = 1
+    const video = makeVideo({ id: 't', viewCount: 1_000_000, duration: 'PT10M', channel, publishedAt: new Date(NOW - 1000 * DAY_MS).toISOString() });
+    const m = computeMetrics(video, NOW);
+    assert.equal(m.performanceMultiple, 100);
+    assert.equal(m.viewsPerDayMultiple, 1);
+  });
+
+  test('같은 포맷 동료가 3편 미만이면 null', () => {
+    const channel = makeChannel({ recentUploads: [upload('a', 1000, 'PT10M'), upload('b', 1000, 'PT10M')] });
+    assert.equal(computeMetrics(makeVideo({ channel }), NOW).viewsPerDayMultiple, null);
+  });
+
+  test('최근 목록이 없으면 null (채널 전체 통계로는 일평균을 못 만든다)', () => {
+    assert.equal(computeMetrics(makeVideo({ channel: makeChannel({ recentUploads: null }) }), NOW).viewsPerDayMultiple, null);
+  });
+});
+
 describe('subscriberRatio (구 떡상지수)', () => {
   test('조회수를 구독자수로 나눈다', () => {
     const m = computeMetrics(makeVideo({ viewCount: 500_000 }), NOW);

@@ -102,6 +102,12 @@ export interface VideoMetrics {
   baselinePeerCount: number;
   /** 업로드 후 하루당 조회수. 오래된 영상의 상위 독식을 교정한다. */
   viewsPerDay: number;
+  /**
+   * 일평균 조회수 ÷ 같은 채널·같은 포맷 동료들의 일평균 중앙값.
+   * 실측에서 검색 결과 영상은 동료보다 수년 오래돼 누적 배수(performanceMultiple)가
+   * 이 값보다 p50 기준 2~7배 컸다. 어느 쪽도 단독 진실이 아니라 둘을 나란히 둔다.
+   */
+  viewsPerDayMultiple: number | null;
   daysSincePublish: number;
   /** 좋아요 ÷ 조회수 */
   likeRate: number | null;

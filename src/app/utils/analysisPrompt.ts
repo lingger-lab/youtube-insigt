@@ -220,7 +220,8 @@ ${tableRows(contrast, 1)}
   return `# 분석 대상
 - **제목**: ${video.title}
 - **채널**: ${video.channelTitle} (구독자 ${formatSubscriberCount(video.channel.subscriberCount)})
-- **성과배수(채널 평소 대비)**: ${formatMultiple(video.metrics.performanceMultiple)} — 기준선: ${describeBaseline(video)}
+- **성과배수(채널 평소 대비, 누적)**: ${formatMultiple(video.metrics.performanceMultiple)} — 기준선: ${describeBaseline(video)}
+- **일평균 배수**: ${formatMultiple(video.metrics.viewsPerDayMultiple)} — 일평균 조회수 ÷ 같은 채널·같은 포맷 동료의 일평균 중앙값. 누적 배수는 오래된 영상에 유리하고 일평균은 신작에 유리하므로 둘을 함께 볼 것.
 - **조회수**: ${formatViewCount(video.viewCount)} (일평균 ${formatViewCount(Math.round(video.metrics.viewsPerDay))})
 - **좋아요율**: ${formatPercent(video.metrics.likeRate)} / **댓글율**: ${formatPercent(video.metrics.commentRate)}
 - **길이**: ${formatDuration(video.duration)}

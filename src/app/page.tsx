@@ -5,6 +5,7 @@ import { VideoData, SearchFilters, searchYouTube } from './utils/youtubeApi';
 import type { SearchDepth, SearchUsage } from '../types/youtube';
 import { filterVideosByType } from './utils/videoUtils';
 import { withMetrics, compareByMetric, type SortKey } from './utils/metrics';
+import { outperformCutoff } from './utils/helpers';
 import { selectCohort, buildMarketAnalysisPrompt } from './utils/analysisPrompt';
 import SearchDepthPicker from './components/SearchDepthPicker';
 import CopyButton from './components/CopyButton';
@@ -77,6 +78,13 @@ export default function Home() {
   // 대조군은 정렬 방식과 무관하게 성과배수 기준으로 뽑는다.
   // 잘된 영상만 보고 성공 요인을 지목하면, 같은 방식으로 하고 묻힌 영상이 보이지 않는다.
   const cohort = useMemo(() => selectCohort(filteredVideos), [filteredVideos]);
+
+  // 강조 기준은 절대값이 아니라 이 결과 집합 안의 상대 위치(+절대 하한)다.
+  // 실측에서 절대 2배 기준은 78~94%를 강조해 아무 정보도 주지 못했다.
+  const highlightCutoff = useMemo(
+    () => outperformCutoff(filteredVideos.map((v) => v.metrics.performanceMultiple)),
+    [filteredVideos],
+  );
 
   const handleSearch = async (term: string) => {
     setIsLoading(true);
@@ -319,6 +327,7 @@ export default function Home() {
                     cohort={cohort}
                     searchTerm={searchTerm}
                     llm={llm}
+                    highlightCutoff={highlightCutoff}
                   />
                 ))}
               </div>
