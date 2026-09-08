@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { searchYouTube, MAX_DEEP_SEARCH } from '../../../server/youtube/search.ts';
 import { YouTubeApiError } from '../../../server/youtube/errors.ts';
+import { searchLimiter, clientKey } from '../../../server/rateLimit.ts';
 
 /**
  * YouTube 검색 프록시.
@@ -26,19 +27,9 @@ const SearchRequestSchema = z.object({
   maxResults: z.number().int().min(1).max(MAX_DEEP_SEARCH),
 });
 
-/**
- * STUB: 현재는 개인용이라 항상 통과시킨다.
- *
- * 공개 전환 시 여기를 채워야 한다. 공유 API 키 하나로 전체 사용자가 하루
- * 24회(200개 기준) 검색밖에 못 하므로, 레이트리밋 없이 공개하면 첫 방문자
- * 몇 명이 하루치를 다 쓴다. 자리만 잡아두고 구현은 공개 시점으로 미뤘다.
- */
-function checkRateLimit(): { allowed: true } | { allowed: false; retryAfterSec: number } {
-  return { allowed: true };
-}
-
 export async function POST(request: Request) {
-  const limit = checkRateLimit();
+  // 검색 버킷은 하루 100회가 전부다. IP당 10분에 10회 (인스턴스 단위 — rateLimit.ts 주석 참조).
+  const limit = searchLimiter.check(clientKey(request));
   if (!limit.allowed) {
     return NextResponse.json(
       { error: { code: 'RATE_LIMITED', message: '요청이 너무 잦습니다. 잠시 후 다시 시도해 주세요.' } },

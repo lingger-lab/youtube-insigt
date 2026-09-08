@@ -33,8 +33,10 @@ npm run measure -- "키워드" ...                 # 실측 (키워드당 검색
 
 4. **조용한 실패 금지.** 할당량 소진·형식 불일치는 빈 결과로 넘기지 않고 던진다.
 
-5. **테스트가 import하는 모듈의 런타임 import에는 `.ts` 확장자**가 필요하다
-   (Node ESM 해석 규칙). `import type`은 지워지므로 확장자가 없어도 된다.
+5. **테스트가 import하는 모듈은 Node 타입 스트리핑(strip-only) 호환이어야 한다.**
+   런타임 import에는 `.ts` 확장자(`import type`은 지워지므로 예외), 그리고 **생성자
+   파라미터 프로퍼티(`constructor(private x)`)·`enum`·`namespace` 금지** — 스트리핑이
+   거부해 `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`로 테스트 파일 전체가 죽는다.
 
 ## 할당량이 실질 상한이다 (2026-06-01 버킷 분리)
 
