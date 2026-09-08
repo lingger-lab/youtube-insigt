@@ -77,30 +77,44 @@ YouTube 검색 결과를 **채널 평소 성과 대비 얼마나 터졌는지**(
 
 ```
 src/
-  types/
-    youtube.ts             # 서버·클라이언트 공유 타입의 단일 출처
+  types/youtube.ts         # 서버·클라이언트 공유 타입의 단일 출처
   server/                  # 서버 전용. API 키는 이 경계 밖으로 나가지 않는다
     youtube/
-      client.ts            # fetch 래퍼 (타임아웃·재시도·할당량 집계)
-      errors.ts            # 실패 분류 (할당량 소진을 별도로 드러냄)
-      search.ts            # 검색·통계 수집
+      client.ts            # fetch 래퍼 (타임아웃·재시도·두 버킷 할당량 집계)
+      errors.ts            # 실패 분류 (검색/공용 버킷 소진을 따로 드러냄)
+      schema.ts            # zod 경계 검증
+      search.ts            # 검색 → 영상 통계 → 채널 통계 + 채널당 최근 업로드 50편
+      thumbnail.ts         # i.ytimg.com 수신 (프록시·LLM 첨부 공용)
+    llm/analyze.ts         # 앱 내 LLM 분석 (@anthropic-ai/sdk, 선택 기능)
+    rateLimit.ts           # 인메모리 레이트리밋 (IP당 10분 검색 10회 / LLM 3회)
   app/
     api/
       search/route.ts      # 검색 프록시 (POST)
+      thumbnail/route.ts   # 썸네일 프록시 (CORS 우회)
+      analyze/route.ts     # 앱 내 LLM 분석 (GET 상태 / POST)
     components/
-      Header.tsx           # 상단 바
-      Sidebar.tsx          # 영상 유형 필터 사이드바
-      Filters.tsx          # 검색 필터 컴포넌트
-      SearchInput.tsx      # 검색 입력 컴포넌트
-      SortBar.tsx          # 정렬 바 컴포넌트
-      DisplayModeToggle.tsx # 표시 모드 토글
-      VideoCard.tsx        # 비디오 카드 컴포넌트
+      VideoCard.tsx        # 카드: 성과배수·일평균 배수·LIVE 배지·자막·AI분석
+      SearchDepthPicker.tsx  # 검색 깊이 + 검색 버킷 소비 표시
+      ThumbnailSheetButton.tsx # 썸네일 컨택트시트 복사
+      TranscriptField.tsx  # 자막 붙여넣기
+      AnalyzeButton.tsx    # 앱 내 LLM 분석 + 결과 패널
+      CopyButton.tsx       # 클립보드 텍스트 복사 + aria-live
+      Header / Sidebar / Filters / SearchInput / SortBar / DisplayModeToggle
     utils/
-      youtubeApi.ts        # 클라이언트: /api/search 호출 + 타입 재수출
-      videoUtils.ts        # 길이 파싱 / Shorts 판별
-      helpers.ts           # 표시용 포맷터
-    globals.css            # 글로벌 스타일
+      metrics.ts           # 파생 지표 (성과배수·일평균 배수·기준선 출처)
+      analysisPrompt.ts    # 대조군 포함 프롬프트
+      contactSheet.ts      # 썸네일 격자 합성 + 클립보드 이미지
+      quota.ts             # 할당량 산수
+      helpers.ts           # 포맷터 + 강조 컷오프
+      videoUtils.ts        # 길이 파싱 / Shorts·롱폼·라이브 판별
+      llmClient.ts         # /api/analyze 호출
+      youtubeApi.ts        # /api/search 호출 + 타입 재수출
     page.tsx               # 메인 페이지
+scripts/
+  measure.ts               # 실측 1차 (npm run measure)
+  measure-isolate.ts       # 실측 2차 (효과 분리)
+docs/
+  ISSUES.md                # 미해결 이슈 · 검증 체크리스트 · 보류 설계
 ```
 
 테스트는 소스 옆에 둡니다(`helpers.ts` ↔ `helpers.test.ts`).
