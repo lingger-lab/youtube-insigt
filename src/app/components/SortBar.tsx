@@ -12,7 +12,7 @@ interface SortBarProps {
 }
 
 const SORT_OPTIONS: { value: SortKey; label: string; hint: string }[] = [
-  { value: 'performanceMultiple', label: '성과배수', hint: '채널 평균 조회수 대비 몇 배인지' },
+  { value: 'performanceMultiple', label: '성과배수', hint: '같은 채널·같은 포맷 최근 영상 중앙값 대비 몇 배인지' },
   { value: 'viewCount', label: '조회수', hint: '누적 조회수' },
   { value: 'viewsPerDay', label: '일평균 조회수', hint: '업로드 후 하루당 조회수 (신작에 유리)' },
   { value: 'likeRate', label: '좋아요율', hint: '좋아요 ÷ 조회수' },

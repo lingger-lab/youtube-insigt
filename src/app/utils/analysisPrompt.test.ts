@@ -100,6 +100,18 @@ describe('buildMarketAnalysisPrompt', () => {
     assert.ok(prompt.includes('채널 규모 효과는 이미 나눠서 제거'));
   });
 
+  test('성과배수 정의가 현행(같은 포맷 최근 영상 중앙값)이다 — 옛 "채널 평균" 정의 금지', () => {
+    assert.ok(prompt.includes('같은 포맷'));
+    assert.ok(prompt.includes('중앙값'));
+    assert.ok(!prompt.includes('÷ 그 채널의 평균 조회수'));
+  });
+
+  test('하위군을 "미달"로 부르지 않는다 — 검색 결과는 승자 집합이라 하위군도 대개 기준선 이상', () => {
+    assert.ok(!prompt.includes('채널 평소 대비 미달'));
+    assert.ok(prompt.includes('결과 안에서 상대적으로 낮'));
+    assert.ok(prompt.includes('검색에 아예 안 뜬 영상'));
+  });
+
   test('표본 크기를 명시한다', () => {
     assert.ok(prompt.includes('총 10건'));
   });
