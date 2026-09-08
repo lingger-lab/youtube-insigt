@@ -15,7 +15,8 @@ import { buildSingleVideoPrompt, type Cohort } from '../utils/analysisPrompt';
 import CopyButton from './CopyButton';
 import TranscriptField from './TranscriptField';
 import AnalyzeButton from './AnalyzeButton';
-import type { LlmStatus } from '../utils/llmClient';
+import type { LlmStatus, AnalysisResult } from '../utils/llmClient';
+import type { NewOutputRecord } from '../utils/history';
 import { useState } from 'react';
 
 interface VideoCardProps {
@@ -28,9 +29,11 @@ interface VideoCardProps {
   llm: LlmStatus;
   /** 강조 컷오프. 결과 집합 상위 20% + 절대 하한. page.tsx가 계산한다. */
   highlightCutoff: number;
+  /** 복사한 프롬프트·받은 분석 결과를 보관함에 남긴다. 저장소가 없으면 undefined. */
+  onOutput?: (output: NewOutputRecord) => void;
 }
 
-export default function VideoCard({ video, displayMode, cohort, searchTerm, llm, highlightCutoff }: VideoCardProps) {
+export default function VideoCard({ video, displayMode, cohort, searchTerm, llm, highlightCutoff, onOutput }: VideoCardProps) {
   const { metrics } = video;
   const outperforming = isOutperforming(metrics.performanceMultiple, highlightCutoff);
   const format = getVideoType(video.duration, video.liveStatus);
@@ -45,6 +48,23 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
   const [showTranscript, setShowTranscript] = useState(false);
 
   const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm, { transcript });
+  // 복사·분석 두 경로가 같은 프롬프트를 쓰므로 보관도 같은 자리에서 한다.
+  const keepPrompt = () =>
+    onOutput?.({ kind: 'video-prompt', term: searchTerm, videoId: video.id, title: video.title, text: analysisPrompt() });
+  const keepAnalysis = (result: AnalysisResult) =>
+    onOutput?.({
+      kind: 'video-analysis',
+      term: searchTerm,
+      videoId: video.id,
+      title: video.title,
+      text: result.text,
+      llm: {
+        model: result.model,
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        estimatedCostUsd: result.estimatedCostUsd,
+      },
+    });
 
   const transcriptToggle = (
     <button
@@ -171,6 +191,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
               {transcriptToggle}
               <CopyButton
                 getText={analysisPrompt}
+                onCopied={keepPrompt}
                 label="AI분석 복사"
                 title="대조군을 포함한 분석 프롬프트를 복사합니다"
               />
@@ -189,6 +210,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
                 getPrompt={analysisPrompt}
                 thumbnailVideoIds={[video.id, ...cohort.bottom.filter((v) => v.id !== video.id).slice(0, 5).map((v) => v.id)]}
                 label="앱에서 이 영상 분석"
+                onResult={keepAnalysis}
               />
             </div>
           )}
@@ -255,6 +277,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
             {transcriptToggle}
             <CopyButton
               getText={analysisPrompt}
+              onCopied={keepPrompt}
               label="AI분석"
               title="대조군을 포함한 분석 프롬프트를 복사합니다"
             />
@@ -273,6 +296,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
               getPrompt={analysisPrompt}
               thumbnailVideoIds={[video.id, ...cohort.bottom.filter((v) => v.id !== video.id).slice(0, 5).map((v) => v.id)]}
               label="앱에서 분석"
+              onResult={keepAnalysis}
             />
           </div>
         )}

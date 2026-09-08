@@ -115,6 +115,8 @@ src/app/utils/
   contactSheet.ts          썸네일 격자 합성(canvas) + 클립보드 이미지/다운로드 폴백
   llmClient.ts             /api/analyze 호출
   youtubeApi.ts            /api/search 호출 + 타입 재수출
+  history.ts               브라우저 localStorage 보관함: 검색 이력(원본만) + 출력(프롬프트·LLM 결과)
+src/app/history/page.tsx   보관함 화면 (이력 열기 = /?h=<id>, 할당량 0)
 src/app/components/
   VideoCard                카드(성과배수·일평균 배수·LIVE 배지·자막 토글·AI분석·앱 내 분석)
   SearchDepthPicker        50/100/200 + 검색 버킷 소비 표시
@@ -124,7 +126,14 @@ src/app/components/
 scripts/
   measure.ts               실측 1차: 분포·비율·할당량   (npm run measure -- "키워드")
   measure-isolate.ts       실측 2차: 포맷/나이 효과 분리, 검색 페이지 반환 수
+  scenario.ts              키워드 1개의 절차·할당량·지표·프롬프트를 단계별로 출력 (원본은 measure-out/에 캐시)
 ```
+
+**저장은 브라우저 localStorage뿐이다** (`utils/history.ts`). 서버에 DB·파일·캐시가 없다. 검색 성공
+시 원본 `VideoData`만 자동 저장하고 URL을 `/?h=<id>`로 바꿔 새로고침·뒤로가기가 할당량 없이
+복원된다. 파생 지표는 저장하지 않고 열 때 다시 계산한다(규칙 3). 복사한 프롬프트와 앱 내 LLM
+결과는 출력 보관함에 남는다(같은 본문은 1건). 예산(검색 3.5M자·출력 0.8M자)을 넘으면 오래된 것부터
+버리고, 손상된 항목은 버리되 `console.warn`으로 알린다. 다른 기기·시크릿 창에서는 안 보인다 — UI에 적혀 있다.
 
 테스트는 소스 옆에 co-locate (`foo.ts` ↔ `foo.test.ts`).
 

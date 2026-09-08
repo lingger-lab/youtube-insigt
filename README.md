@@ -13,6 +13,8 @@ YouTube 검색 결과를 **채널 평소 성과 대비 얼마나 터졌는지**(
 - **썸네일 컨택트시트**: 상위·하위군 썸네일을 `#번호` 격자 한 장으로 클립보드에 복사
 - **자막 붙여넣기**: 있을 때만 대본 구조 분석 요청
 - **앱 내 LLM 분석(선택)**: `ANTHROPIC_API_KEY`가 있을 때만 활성, 응답마다 토큰·추정 비용 표시
+- **보관함(`/history`)**: 검색 결과는 자동 저장되어 새로고침·재방문 시 할당량 없이 복원(`/?h=<id>`),
+  복사한 프롬프트와 LLM 분석 결과도 남음. **브라우저 localStorage에만** 저장 — 서버·다른 기기에는 없음
 - 카드형/리스트형 전환, Dark Mode, 모바일 드로어
 
 ## 🛠️ 기술 스택
@@ -109,10 +111,13 @@ src/
       videoUtils.ts        # 길이 파싱 / Shorts·롱폼·라이브 판별
       llmClient.ts         # /api/analyze 호출
       youtubeApi.ts        # /api/search 호출 + 타입 재수출
+      history.ts           # 브라우저 보관함 (검색 이력 + 출력)
+    history/page.tsx       # 보관함 화면
     page.tsx               # 메인 페이지
 scripts/
   measure.ts               # 실측 1차 (npm run measure)
   measure-isolate.ts       # 실측 2차 (효과 분리)
+  scenario.ts              # 키워드 1개 절차·결과 출력 (원본 measure-out/ 캐시)
 docs/
   ISSUES.md                # 미해결 이슈 · 검증 체크리스트 · 보류 설계
 ```
@@ -126,6 +131,7 @@ docs/
 3. "시장 분석 복사" + "썸네일 시트 복사" → LLM 입력창에 둘 다 붙여넣기
 4. 개별 영상은 "AI분석" (자막을 붙여넣으면 대본 구조까지)
 5. 카드 클릭 → YouTube 원본
+6. 사이드바 "보관함"에서 지난 검색을 다시 열거나(할당량 0) 복사했던 프롬프트·분석 결과를 다시 봄
 
 ## 🔥 성과배수
 
