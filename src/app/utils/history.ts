@@ -1,4 +1,5 @@
 import type { SearchDepth, SearchFilters, SearchUsage, VideoData } from '../../types/youtube';
+import type { VideoObservation } from '../../types/observation';
 
 /**
  * 검색 이력과 출력 보관함 — 브라우저 localStorage.
@@ -44,6 +45,12 @@ export interface OutputRecord {
   };
 }
 
+/** 영상 관찰(Gemini). videoId가 키다 — 같은 영상은 다시 부르지 않는다. 30일 만료는 공용. */
+export interface ObservationRecord {
+  savedAt: string;
+  observation: VideoObservation;
+}
+
 export type NewSearchRecord = Omit<SearchRecord, 'id' | 'savedAt'>;
 export type NewOutputRecord = Omit<OutputRecord, 'id' | 'savedAt'>;
 
@@ -66,6 +73,9 @@ export interface HistoryStore {
   /** 시안용 "내 주제/채널". 프롬프트에 실린다. 없으면 빈 문자열. */
   getTopic(): string;
   setTopic(topic: string): void;
+  /** 영상 관찰. 같은 videoId는 덮어쓴다. */
+  getObservations(videoIds: string[]): Record<string, VideoObservation>;
+  saveObservation(observation: VideoObservation): void;
   clearAll(): void;
 }
 
@@ -79,6 +89,7 @@ export class HistoryError extends Error {
 export const SEARCHES_KEY = 'youtube-insigt:searches:v1';
 export const OUTPUTS_KEY = 'youtube-insigt:outputs:v1';
 export const TOPIC_KEY = 'youtube-insigt:topic:v1';
+export const OBSERVATIONS_KEY = 'youtube-insigt:observations:v1';
 
 /**
  * 문자 수 예산. localStorage는 오리진당 약 5M UTF-16 코드 유닛(Chrome)이 상한이다.
@@ -87,6 +98,8 @@ export const TOPIC_KEY = 'youtube-insigt:topic:v1';
  */
 export const SEARCH_BUDGET_CHARS = 3_500_000;
 export const OUTPUT_BUDGET_CHARS = 800_000;
+/** 관찰 1건 ≈ 1.5K자. 500건 남짓. */
+export const OBSERVATION_BUDGET_CHARS = 800_000;
 /**
  * YouTube API 개발자 정책 III.E.4.b — 채널 소유자 인가 없이 받은 통계(조회수·구독자수)는
  * 30일을 넘겨 저장할 수 없다. 검색 이력은 통계 그 자체이고, 출력(프롬프트·LLM 결과)도 통계를
@@ -121,6 +134,16 @@ function isSearchRecord(value: unknown): value is SearchRecord {
     isRecord(value.filters) &&
     isRecord(value.usage) &&
     Array.isArray(value.videos)
+  );
+}
+
+function isObservationRecord(value: unknown): value is ObservationRecord {
+  return (
+    isRecord(value) &&
+    typeof value.savedAt === 'string' &&
+    isRecord(value.observation) &&
+    typeof value.observation.videoId === 'string' &&
+    isRecord(value.observation.hook)
   );
 }
 
@@ -251,6 +274,21 @@ export function createHistoryStore(storage: StorageLike, options: StoreOptions =
       write(OUTPUTS_KEY, remaining, outputBudget);
     },
 
+    getObservations(videoIds) {
+      const wanted = new Set(videoIds);
+      const out: Record<string, VideoObservation> = {};
+      for (const record of read(OBSERVATIONS_KEY, isObservationRecord)) {
+        if (wanted.has(record.observation.videoId)) out[record.observation.videoId] = record.observation;
+      }
+      return out;
+    },
+
+    saveObservation(observation) {
+      const others = read(OBSERVATIONS_KEY, isObservationRecord).filter((r) => r.observation.videoId !== observation.videoId);
+      const record: ObservationRecord = { savedAt: now().toISOString(), observation };
+      write(OBSERVATIONS_KEY, [record, ...others], OBSERVATION_BUDGET_CHARS);
+    },
+
     getTopic() {
       return (storage.getItem(TOPIC_KEY) ?? '').trim();
     },
@@ -265,6 +303,7 @@ export function createHistoryStore(storage: StorageLike, options: StoreOptions =
       storage.removeItem(SEARCHES_KEY);
       storage.removeItem(OUTPUTS_KEY);
       storage.removeItem(TOPIC_KEY);
+      storage.removeItem(OBSERVATIONS_KEY);
     },
   };
 }

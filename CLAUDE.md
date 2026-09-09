@@ -92,6 +92,7 @@ node --env-file=.env.local scripts/measure-isolate.ts "키워드" ...   # 실측
 
 ```
 src/types/youtube.ts      공유 타입의 단일 출처 (런타임 코드 없음)
+src/types/observation.ts  영상 관찰(Gemini) 타입 — API 데이터가 아니라 모델 관찰
 src/server/                서버 전용. 키는 이 경계 밖으로 안 나간다
   youtube/client.ts        타임아웃 8s · 429/5xx만 2회 재시도(백오프+지터) · 두 버킷 할당량 집계
   youtube/errors.ts        실패 분류 (검색 버킷/공용 버킷 소진을 따로 드러냄, 404 NOT_FOUND)
@@ -101,11 +102,15 @@ src/server/                서버 전용. 키는 이 경계 밖으로 안 나간
   youtube/thumbnail.ts     i.ytimg.com 수신 (maxres→hq→mq). 프록시와 LLM 첨부가 같이 씀
   llm/analyze.ts           @anthropic-ai/sdk · claude-opus-5 · 스트리밍→finalMessage · refusal fallback
                            · 응답마다 usage + 추정 비용. 키 없으면 네트워크 전에 차단
+  llm/observe.ts           @google/genai · gemini-3.8-flash · 공개 YouTube URL을 넘겨 영상을 직접 보게 함(관찰만,
+                           평가 금지) · JSON Schema + zod 재검증 · store:false · <5분 static / ≥5분 agentic
+                           · GEMINI_API_KEY 없으면 차단. 편당 1요청
   rateLimit.ts             인메모리 슬라이딩 윈도 (IP당 10분 검색 10회 / LLM 3회). 인스턴스 단위
 src/app/api/
   search/route.ts          POST 프록시 (zod 요청 검증, 레이트리밋, maxDuration 60s)
   thumbnail/route.ts       i.ytimg.com 프록시 (CORS 우회, 하루 캐시, 할당량 0)
   analyze/route.ts         GET 상태 / POST 앱 내 LLM 분석 (키 없으면 503, 레이트리밋)
+  observe/route.ts         GET 상태 / POST 영상 1편 관찰 (키 없으면 503, 10분 30회)
 src/app/utils/
   metrics.ts               파생 지표를 만드는 유일한 곳 (성과배수·일평균 배수·기준선 출처)
   analysisPrompt.ts        관찰(대조 표·채널 평소 제목 대조) → 플레이북 → 시안(원본 5부 구조) 프롬프트
@@ -115,6 +120,7 @@ src/app/utils/
   videoUtils.ts            길이 파싱, VideoType(shorts/long/live) 판별, 필터
   contactSheet.ts          썸네일 격자 합성(canvas) + 클립보드 이미지/다운로드 폴백
   llmClient.ts             /api/analyze 호출
+  observeClient.ts         /api/observe 호출, 병렬 3, 429 백오프
   youtubeApi.ts            /api/search 호출 + 타입 재수출
   history.ts               브라우저 localStorage 보관함: 검색 이력(원본만) + 출력(프롬프트·LLM 결과)
 src/app/history/page.tsx   보관함 화면 (이력 열기 = /?h=<id>, 할당량 0)
@@ -123,6 +129,7 @@ src/app/components/
   SearchDepthPicker        50/100/200 + 검색 버킷 소비 표시
   ThumbnailSheetButton     컨택트시트 복사     CopyButton  클립보드 텍스트 + aria-live
   AnalyzeButton            앱 내 LLM 분석 + 결과 패널   TranscriptField  자막 붙여넣기
+  ObserveButton            영상 관찰 수집(진행 n/N·실패 사유·토큰·추정 비용·전송 분) — 대조군 20편 / 카드 단건
   Sidebar / Header / SortBar / Filters / SearchInput / DisplayModeToggle
 scripts/
   measure.ts               실측 1차: 분포·비율·할당량   (npm run measure -- "키워드")
@@ -168,11 +175,15 @@ scripts/
 
 ## 배포
 
-Vercel (`icn1`). 환경변수 `YT_API_KEY`(필수), `ANTHROPIC_API_KEY`(선택 — 넣는 순간 돈이 든다).
+Vercel (`icn1`). 환경변수 `YT_API_KEY`(필수), `ANTHROPIC_API_KEY`(선택 — 넣는 순간 돈이 든다),
+`GEMINI_API_KEY`(선택 — 영상 관찰. YouTube URL 입력은 프리뷰 무료, 무료 티어 하루 8시간분).
 프로덕션 배포는 **항상 사용자 승인**이 필요하다.
 
 ## LLM 연동 규칙
 - 모델 ID는 `claude-opus-5` 그대로. 날짜 접미사를 붙이지 말 것. 바꾸려면 `LLM_MODEL` 환경변수
+- **영상 관찰(Gemini)은 관찰자다.** 본 것·들은 것만 JSON으로 적고 평가·추천은 하지 않는다. 판단은 Claude/외부 LLM.
+  프롬프트에서 관찰은 `[영상관찰 #n mm:ss]` 태그로 `[행 n]`(API 사실)과 구분한다. 관찰은 보관함(30일)에 videoId로 캐시.
+  앱은 영상을 받지 않는다(URL만 넘김). 설계·조사: docs/PLAN-영상관찰.md, docs/RESEARCH-없는것.md
 - 공식 SDK만 쓴다. raw fetch로 Messages API를 부르지 않는다
 - 비용이 보이지 않는 경로를 만들지 말 것 — 모든 응답에 `usage`와 `estimatedCostUsd`
 - Vercel Hobby는 함수 60s. 긴 분석이 잘리면 Fluid compute(300s) 또는 `LLM_EFFORT=medium`

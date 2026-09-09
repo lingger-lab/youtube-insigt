@@ -5,11 +5,33 @@ import {
   HistoryError,
   SEARCHES_KEY,
   OUTPUTS_KEY,
+  OBSERVATIONS_KEY,
   type StorageLike,
   type NewSearchRecord,
   type NewOutputRecord,
 } from './history.ts';
 import type { VideoData } from '../../types/youtube';
+import type { VideoObservation } from '../../types/observation';
+
+function observation(videoId: string, overrides: Partial<VideoObservation> = {}): VideoObservation {
+  return {
+    videoId,
+    observedAt: '2026-09-09T00:00:00.000Z',
+    model: 'gemini-3.8-flash',
+    processing: 'static',
+    language: 'ko',
+    hook: { first3s: { visual: '완성품', spoken: null, onScreenText: null }, firstLine: { quote: '이거 쉬워요', at: '00:00' }, promiseStatedAt: '00:02' },
+    structure: [],
+    patternInterrupts: [],
+    thumbnailPromise: { kept: 'yes', evidence: '00:18 완성품', at: '00:18' },
+    cta: { present: false, at: null, text: null },
+    faceOnCamera: 'no',
+    textOverlay: 'light',
+    notes: [],
+    usage: { inputTokens: 4000, outputTokens: 800, estimatedCostUsd: 0.006, elapsedMs: 9000 },
+    ...overrides,
+  };
+}
 
 /** localStorage 흉내. quota를 주면 그보다 큰 setItem은 브라우저처럼 던진다. */
 function makeStorage(quota = Infinity): StorageLike & { map: Map<string, string> } {
@@ -208,6 +230,42 @@ describe('내 주제', () => {
     store.setTopic('x');
     store.clearAll();
     assert.equal(store.getTopic(), '');
+  });
+});
+
+describe('영상 관찰 보관', () => {
+  test('videoId로 저장·조회하고, 요청한 것만 돌려준다', () => {
+    const store = createHistoryStore(makeStorage());
+    store.saveObservation(observation('a'));
+    store.saveObservation(observation('b'));
+    const got = store.getObservations(['a', 'zzz']);
+    assert.deepEqual(Object.keys(got), ['a']);
+    assert.equal(got.a.hook.firstLine?.quote, '이거 쉬워요');
+  });
+
+  test('같은 영상은 덮어쓴다 (재관찰이 옛 것과 공존하지 않는다)', () => {
+    const store = createHistoryStore(makeStorage());
+    store.saveObservation(observation('a', { language: 'ko' }));
+    store.saveObservation(observation('a', { language: 'en' }));
+    assert.equal(store.getObservations(['a']).a.language, 'en');
+    assert.equal(JSON.parse(makeStorage().getItem(OBSERVATIONS_KEY) ?? '[]').length, 0);
+  });
+
+  test('30일이 지나면 같이 만료된다', () => {
+    const DAY = 86_400_000;
+    let t = Date.UTC(2026, 8, 9);
+    const store = createHistoryStore(makeStorage(), { now: () => new Date(t) });
+    store.saveObservation(observation('a'));
+    t += 31 * DAY;
+    assert.deepEqual(store.getObservations(['a']), {});
+  });
+
+  test('clearAll이 관찰도 지운다', () => {
+    const storage = makeStorage();
+    const store = createHistoryStore(storage);
+    store.saveObservation(observation('a'));
+    store.clearAll();
+    assert.equal(storage.map.has(OBSERVATIONS_KEY), false);
   });
 });
 

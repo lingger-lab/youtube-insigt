@@ -74,3 +74,5 @@ const TEN_MINUTES = 10 * 60_000;
 export const searchLimiter = new SlidingWindowLimiter(10, TEN_MINUTES);
 /** IP당 10분에 LLM 분석 3회. 호출당 비용이 있다. */
 export const analyzeLimiter = new SlidingWindowLimiter(3, TEN_MINUTES);
+/** 영상 관찰(Gemini): 편당 1요청이라 대조군 20편 + 여유. 프리뷰 무료지만 하루 8시간분 한도가 있다. */
+export const observeLimiter = new SlidingWindowLimiter(30, TEN_MINUTES);

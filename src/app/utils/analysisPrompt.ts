@@ -1,4 +1,5 @@
 import type { VideoWithMetrics } from '../../types/youtube.ts';
+import type { VideoObservation } from '../../types/observation.ts';
 // 런타임 import에는 .ts 확장자가 필요하다 (node --test가 이 모듈을 직접 실행한다).
 import { formatViewCount, formatPercent, formatMultiple, formatSubscriberCount } from './helpers.ts';
 import { formatDuration, getVideoType, type VideoType } from './videoUtils.ts';
@@ -193,10 +194,13 @@ export const TRANSCRIPT_MAX_CHARS = 12_000;
  * 데이터로 확인할 수 없는 것을 매번 명시한다. 숨기면 모델이 채워 넣는다.
  * 자막을 사용자가 붙여넣었으면 그 항목만 목록에서 빠진다.
  */
-function dataLimits(hasTranscript: boolean): string {
+function dataLimits(hasTranscript: boolean, coverage: ObservationCoverage = { observed: 0, total: 0 }): string {
+  const fullyObserved = coverage.total > 0 && coverage.observed === coverage.total;
   const transcriptLine = hasTranscript
     ? ''
-    : `\n- **영상 내용/자막**: YouTube 공식 API는 타인 영상의 자막을 제공하지 않는다(소유자 OAuth 필요). 대본 구조·훅·전개는 자막을 직접 붙여넣기 전까지 분석 대상이 아니다.`;
+    : fullyObserved
+      ? `\n- **자막 원문**: 없다. 대신 위 "영상 관찰"에 Gemini가 영상을 직접 보고 적은 첫 문장 인용·구조·시각이 있다 — 그것을 [영상관찰 #n mm:ss]로 인용한다.`
+      : `\n- **영상 내용/자막**: YouTube 공식 API는 타인 영상의 자막을 제공하지 않는다(소유자 OAuth 필요). 대본 구조·훅·전개는 자막을 직접 붙여넣기 전까지 분석 대상이 아니다${coverage.observed > 0 ? ` — 예외: 영상 관찰이 있는 행(${coverage.observed}/${coverage.total}편)은 관찰을 [영상관찰 #n mm:ss]로 인용해 다룬다` : ''}.`;
   return `## 이 데이터에 없는 것 (추측하지 말 것)
 - **썸네일 이미지 — 텍스트로는 못 실음** (없는 게 아니라 첨부 방법의 문제): 앱의 "썸네일 시트 복사"로 만든 격자 이미지(각 칸의 #번호 = 아래 표의 행 번호)를 이 대화에 붙여넣거나, 아래 링크를 직접 열어 첨부하면 그때 분석 가능. 첨부 전에는 썸네일 구성·색·표정에 대해 쓰지 말 것.${transcriptLine}
 - **시청 지속률·CTR·노출수**: 채널 소유자만 볼 수 있다. 이탈 구간 추정 금지.
@@ -278,6 +282,53 @@ ${rows.join('\n')}`;
 export interface ProposalOptions {
   /** 사용자가 적은 "내 주제/채널". 없으면 입력 칸을 남기고 검색어와 같은 주제로 가정하게 한다. */
   topic?: string;
+  /** Gemini 영상 관찰. videoId → 관찰. 없는 행은 "미수집"으로 표기된다. */
+  observations?: Record<string, VideoObservation>;
+}
+
+interface ObservationCoverage {
+  observed: number;
+  total: number;
+}
+
+function coverageOf(videos: VideoWithMetrics[], observations: Record<string, VideoObservation> | undefined): ObservationCoverage {
+  const observed = observations ? videos.filter((v) => observations[v.id]).length : 0;
+  return { observed, total: videos.length };
+}
+
+function quoteLabel(o: VideoObservation): string {
+  return o.hook.firstLine ? `"${cell(o.hook.firstLine.quote)}" @${o.hook.firstLine.at}` : '(발화 없음)';
+}
+
+/**
+ * 영상 관찰 표. 관찰은 모델(Gemini)이 영상을 보고 적은 것이지 API 데이터가 아니다 —
+ * 표 위에 그 사실을 적고, 인용 태그를 [행 n]과 다르게 둔다. 관찰이 하나도 없으면 절 자체가 없다.
+ */
+function observationSection(videos: VideoWithMetrics[], startIndex: number, observations: Record<string, VideoObservation> | undefined): string {
+  const coverage = coverageOf(videos, observations);
+  if (!observations || coverage.observed === 0) return '';
+
+  const rows = videos
+    .map((v, i) => {
+      const o = observations[v.id];
+      if (!o) return null;
+      const first3 = [o.hook.first3s.visual, o.hook.first3s.spoken ? `말: ${o.hook.first3s.spoken}` : null, o.hook.first3s.onScreenText ? `자막: ${o.hook.first3s.onScreenText}` : null]
+        .filter(Boolean)
+        .join(' / ');
+      const structure = o.structure.map((b) => `${b.start}-${b.end} ${b.purpose}${b.device ? `(${b.device})` : ''}`).join('; ');
+      const interrupts = o.patternInterrupts.length ? o.patternInterrupts.map((p) => `${p.at} ${p.kind}`).join(', ') : '없음';
+      const notes = o.notes.length ? cell(o.notes.join(' / ')) : '';
+      return `| ${startIndex + i} | ${cell(first3)} | ${quoteLabel(o)} | ${o.hook.promiseStatedAt ?? 'null'} | ${o.thumbnailPromise.kept} — ${cell(o.thumbnailPromise.evidence)} | ${cell(structure) || '없음'} | ${cell(interrupts)} | ${o.faceOnCamera} | ${o.textOverlay} | ${o.cta.present ? `있음 ${o.cta.at ?? ''}` : '없음'} | ${notes} |`;
+    })
+    .filter((r): r is string => r !== null);
+
+  const missing = coverage.total - coverage.observed;
+  return `## 영상 관찰 (Gemini가 영상을 직접 본 결과 — **모델 관찰이지 API 데이터가 아님**. 인용은 원문, 시각은 MM:SS. 인용 태그: [영상관찰 #n mm:ss])
+${coverage.observed}/${coverage.total} 관찰됨${missing > 0 ? ` — 나머지 ${missing}편은 미수집(표에 없음, 추측 금지)` : ''}. 관찰자는 평가하지 않았다. 판단은 이 답변의 몫이다.
+| # | 첫 3초 (화면 / 말 / 자막) | 첫 문장 인용 | 약속 확인 시점 | 썸네일 약속 이행 | 구조 블록 | 패턴 인터럽트 | 얼굴 | 자막 밀도 | CTA | 관찰자 메모(못 본 것) |
+|---|---|---|---|---|---|---|---|---|---|---|
+${rows.join('\n')}
+`;
 }
 
 /**
@@ -318,7 +369,7 @@ ${topicBlock}
 
 ### C. 구조 설계 (포맷: ${formatLabel})
 - 길이: 상위군 길이 분포에서 [행 n]
-- 훅 3안 → 최적 1안 [원칙 ${hookPrinciple}]. 자막이 없으면 첫 문장은 [가정]으로 표기
+- 훅 3안 → 최적 1안 [원칙 ${hookPrinciple}]. 관찰이 있는 행은 [영상관찰 #n mm:ss]를 근거로, 없으면 첫 문장은 [가정]으로 표기
 - 타임라인 [원칙 ${structurePrinciple}] — 블록별 **목적과 장치**만. 대사 전문은 쓰지 않는다
 - 이탈 위험 구간 & 회수 장치 표 (구간 / 위험 신호 / 개입) — 시청지속률 데이터가 없으므로 전부 [가정] 또는 [원칙]
 - 톤 & 보이스 3줄, 금지 리스트 3개
@@ -335,7 +386,7 @@ ${topicBlock}
 - 제목 5개 리스트 / 썸네일 텍스트 5개 리스트 / 1문장 전략 요약(TL;DR)
 
 ## 시안 작성 규칙
-- 시안의 **모든 문장**에 [행 n] / [원칙 ID] / [가정] / [데이터 없음] 중 하나를 단다. 넷 다 달 수 없는 문장은 쓰지 않는다.
+- 시안의 **모든 문장**에 [행 n] / [원칙 ID] / [영상관찰 #n mm:ss] / [가정] / [데이터 없음] 중 하나를 단다. 다섯 다 달 수 없는 문장은 쓰지 않는다.
 - 답변 **맨 끝에 체크표**: A~F 각 절이 있는가(Y/N), 세트가 5개인가, 태그 없는 시안 문장이 0개인가, 관찰의 중앙값을 표의 요약 줄과 대조했는가. N이 있으면 그 자리에서 채운다.
 - [가정]은 숨기지 않고 그대로 드러낸다. "부족하면 가정하고 진행"이 아니라 **가정임을 표기하고 진행**이다.
 - 원칙과 이 검색어의 데이터가 충돌하면 데이터를 따르고, 충돌을 그대로 적는다.
@@ -378,7 +429,8 @@ ${TABLE_LEGEND}
 
 ${channelContrastSection(top, 1)}
 
-${dataLimits(false)}
+${observationSection([...top, ...bottom], 1, options.observations)}
+${dataLimits(false, coverageOf([...top, ...bottom], options.observations))}
 ${thumbnailSection(top, '상위군', 1)}${thumbnailSection(bottom, '하위군', bottomStart)}
 ## 요청
 1. **제목 언어의 차이**: 상위군에만 반복되는 표현/구조 패턴을 찾고, 각 패턴이 상위군 몇 건·하위군 몇 건에 나타나는지 세어 표로 제시.
@@ -444,7 +496,8 @@ ${TABLE_LEGEND}
 
 ${contrastSection}
 
-${dataLimits(hasTranscript)}
+${observationSection([video], 0, options.observations).replace('| 0 |', '| 대상 |')}
+${dataLimits(hasTranscript, coverageOf([video], options.observations))}
 ${thumbnailSection([video], '대상 영상', 1)}
 ${hasTranscript ? transcriptSection(options.transcript as string) : ''}
 ## 요청

@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import type { VideoData } from '../../types/youtube.ts';
+import type { VideoObservation } from '../../types/observation.ts';
 import { withMetrics } from './metrics.ts';
 import {
   selectCohort,
@@ -475,5 +476,81 @@ describe('0 unit 필드 — PPL·주제·음성 언어 (RESEARCH-없는것)', ()
   test('"없는 것"에서 썸네일은 없음이 아니라 첨부 방법으로, 자막은 정식 API 제약으로 적는다', () => {
     assert.ok(prompt.includes('썸네일 이미지 — 텍스트로는 못 실음'));
     assert.ok(!prompt.includes('**썸네일 이미지**:'));
+  });
+});
+
+describe('영상 관찰 절 — Gemini가 본 결과를 [영상관찰] 태그로 싣는다', () => {
+  const observation = (videoId: string): VideoObservation => ({
+    videoId,
+    observedAt: '2026-09-09T00:00:00.000Z',
+    model: 'gemini-3.8-flash',
+    processing: 'static',
+    language: 'ko',
+    hook: {
+      first3s: { visual: '완성된 치킨 클로즈업', spoken: '이거 진짜 쉬워요', onScreenText: '10분 완성' },
+      firstLine: { quote: '이거 진짜 쉬워요', at: '00:00' },
+      promiseStatedAt: '00:02',
+    },
+    structure: [
+      { start: '00:00', end: '00:03', purpose: '결과 먼저', device: '클로즈업' },
+      { start: '00:03', end: '00:20', purpose: '과정 압축', device: '점프컷' },
+    ],
+    patternInterrupts: [{ at: '00:10', kind: '전환' }],
+    thumbnailPromise: { kept: 'partly', evidence: '00:18에 완성품이 보이지만 썸네일의 치즈는 없음', at: '00:18' },
+    cta: { present: false, at: null, text: null },
+    faceOnCamera: 'no',
+    textOverlay: 'light',
+    notes: ['00:12~00:15 음성 불명확'],
+    usage: { inputTokens: 4000, outputTokens: 800, estimatedCostUsd: 0.006, elapsedMs: 9000 },
+  });
+  const set = withMetrics(
+    Array.from({ length: 8 }, (_, i) => makeVideo(`v${i}`, 8 - i, { channel: reliableChannel() })),
+    NOW,
+  );
+  const cohort = selectCohort(set, 4);
+  const all = Object.fromEntries([...cohort.top, ...cohort.bottom].map((v) => [v.id, observation(v.id)]));
+
+  test('관찰이 없으면 절이 없고 "없는 것"에 자막 항목이 남는다', () => {
+    const p = buildMarketAnalysisPrompt('키워드', cohort);
+    assert.ok(!p.includes('## 영상 관찰'));
+    assert.ok(p.includes('**영상 내용/자막**'));
+    assert.ok(p.includes('자막을 직접 붙여넣기 전까지 분석 대상이 아니다'));
+  });
+
+  test('전부 관찰되면 표가 실리고, 자막 항목은 "관찰 있음"으로 바뀌며, 태그 규칙에 [영상관찰 #n mm:ss]가 들어간다', () => {
+    const p = buildMarketAnalysisPrompt('키워드', cohort, { observations: all });
+    assert.ok(p.includes('## 영상 관찰'));
+    assert.ok(p.includes('모델 관찰이지 API 데이터가 아님'));
+    assert.ok(p.includes('"이거 진짜 쉬워요" @00:00'));
+    assert.ok(p.includes('partly'));
+    assert.ok(p.includes('[영상관찰 #n mm:ss]'));
+    assert.ok(!p.includes('**영상 내용/자막**'));
+    assert.ok(p.includes('8/8 관찰됨'));
+  });
+
+  test('일부만 관찰되면 관찰된 행만 표에 있고 나머지는 "미수집"으로 세어 적는다', () => {
+    const some = { [cohort.top[0].id]: observation(cohort.top[0].id) };
+    const p = buildMarketAnalysisPrompt('키워드', cohort, { observations: some });
+    assert.ok(p.includes('## 영상 관찰'));
+    assert.ok(p.includes('1/8 관찰됨'));
+    assert.ok(p.includes('나머지 7편은 미수집'));
+    assert.ok(p.includes('**영상 내용/자막**'), '전부 관찰되기 전엔 자막 항목이 남는다');
+  });
+
+  test('훅 3안은 관찰이 있으면 [가정] 대신 [영상관찰]을 근거로 하게 한다', () => {
+    const p = buildMarketAnalysisPrompt('키워드', cohort, { observations: all });
+    assert.ok(p.includes('관찰이 있는 행은 [영상관찰 #n mm:ss]를 근거로'));
+  });
+
+  test('관찰의 notes(못 본 것)를 숨기지 않고 싣는다', () => {
+    const p = buildMarketAnalysisPrompt('키워드', cohort, { observations: all });
+    assert.ok(p.includes('음성 불명확'));
+  });
+
+  test('단건 프롬프트에도 대상 영상의 관찰이 실린다', () => {
+    const v = cohort.top[0];
+    const p = buildSingleVideoPrompt(v, cohort, '키워드', { observations: { [v.id]: observation(v.id) } });
+    assert.ok(p.includes('## 영상 관찰'));
+    assert.ok(p.includes('"이거 진짜 쉬워요" @00:00'));
   });
 });

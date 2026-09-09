@@ -12,6 +12,9 @@ import CopyButton from './components/CopyButton';
 import ThumbnailSheetButton from './components/ThumbnailSheetButton';
 import AnalyzeButton from './components/AnalyzeButton';
 import { getLlmStatus, type LlmStatus, type AnalysisResult } from './utils/llmClient';
+import { getObserveStatus, type ObserveStatus, type VideoObservation } from './utils/observeClient';
+import ObserveButton from './components/ObserveButton';
+import { getVideoDurationInSeconds, getVideoType } from './utils/videoUtils';
 import { browserHistoryStore, type HistoryStore, type NewOutputRecord } from './utils/history';
 import Header from './components/Header';
 import Sidebar, { MobileNavDrawer, type VideoFilter } from './components/Sidebar';
@@ -62,8 +65,33 @@ export default function Home() {
     };
   }, []);
 
+  // 영상 관찰(Gemini)도 서버에 키가 있을 때만.
+  const [observe, setObserve] = useState<ObserveStatus>({ enabled: false, model: null });
+  useEffect(() => {
+    let cancelled = false;
+    getObserveStatus().then((status) => {
+      if (!cancelled) setObserve(status);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // 브라우저 로컬 보관함. SSR·차단 환경이면 null이고 저장만 빠진다.
   const [history, setHistory] = useState<HistoryStore | null>(null);
+  // 현재 결과 영상들의 관찰. 출처는 보관함(videoId 키)이고 이 상태는 그 조회 결과다 —
+  // 검색·복원 시 보관함에서 읽어 채우고, 새 관찰은 보관함에 먼저 쓴 뒤 여기에 반영한다.
+  const [observations, setObservations] = useState<Record<string, VideoObservation>>({});
+  const keepObservation = (observation: VideoObservation) => {
+    if (!history) return;
+    try {
+      history.saveObservation(observation);
+      setObservations((prev) => ({ ...prev, [observation.videoId]: observation }));
+      setHistoryError(null);
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : '관찰 저장에 실패했습니다.');
+    }
+  };
   // 저장된 검색을 열어 보고 있는가. null이면 방금 API로 받은 결과.
   const [restoredFrom, setRestoredFrom] = useState<{ id: string; savedAt: string } | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -108,6 +136,7 @@ export default function Home() {
     setVideos(record.videos);
     setUsage(record.usage);
     setHasSearched(true);
+    setObservations(store.getObservations(record.videos.map((v) => v.id)));
     setRestoredFrom({ id: record.id, savedAt: record.savedAt });
   }, []);
 
@@ -128,6 +157,14 @@ export default function Home() {
   // 대조군은 정렬 방식과 무관하게 성과배수 기준으로 뽑는다.
   // 잘된 영상만 보고 성공 요인을 지목하면, 같은 방식으로 하고 묻힌 영상이 보이지 않는다.
   const cohort = useMemo(() => selectCohort(filteredVideos), [filteredVideos]);
+
+  const cohortObserveItems = useMemo(
+    () =>
+      [...cohort.top, ...cohort.bottom]
+        .filter((v) => getVideoType(v.duration, v.liveStatus) !== 'live')
+        .map((v) => ({ videoId: v.id, title: v.title, durationSec: getVideoDurationInSeconds(v.duration) })),
+    [cohort],
+  );
 
   // 강조 기준은 절대값이 아니라 이 결과 집합 안의 상대 위치(+절대 하한)다.
   // 실측에서 절대 2배 기준은 78~94%를 강조해 아무 정보도 주지 못했다.
@@ -150,6 +187,7 @@ export default function Home() {
       const { videos: results, usage: spent } = await searchYouTube(term, filters, searchDepth);
       setVideos(results);
       setUsage(spent);
+      setObservations(history ? history.getObservations(results.map((v) => v.id)) : {});
       // 성공한 검색은 자동으로 남긴다. URL에 id를 실어 새로고침·뒤로가기가 복원되게 한다.
       if (history) {
         try {
@@ -195,6 +233,7 @@ export default function Home() {
     setVideos([]);
     setError(null);
     setUsage(null);
+    setObservations({});
     setRestoredFrom(null);
     setHistoryError(null);
     window.history.replaceState(null, '', '/');
@@ -371,13 +410,13 @@ export default function Home() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <CopyButton
-                      getText={() => buildMarketAnalysisPrompt(searchTerm, cohort, { topic })}
+                      getText={() => buildMarketAnalysisPrompt(searchTerm, cohort, { topic, observations })}
                       onCopied={() =>
                         keepOutput({
                           kind: 'market-prompt',
                           term: searchTerm,
                           title: `"${searchTerm}" 시장 분석`,
-                          text: buildMarketAnalysisPrompt(searchTerm, cohort, { topic }),
+                          text: buildMarketAnalysisPrompt(searchTerm, cohort, { topic, observations }),
                         })
                       }
                       label="시장 분석 복사"
@@ -393,11 +432,22 @@ export default function Home() {
                       filename={`thumbnails-${searchTerm.replace(/[^\w가-힣]+/g, '_').slice(0, 40) || 'sheet'}.png`}
                     />
                   </div>
+                  {/* 영상 관찰: Gemini가 대조군 영상을 직접 본다. 키 없으면 잠김. 결과는 프롬프트 표에 실린다. */}
+                  {observe.enabled && history && (
+                    <ObserveButton
+                      enabled={observe.enabled}
+                      model={observe.model}
+                      items={cohortObserveItems}
+                      existing={observations}
+                      onObserved={keepObservation}
+                      label="영상 관찰 수집 (상위·하위군)"
+                    />
+                  )}
                   {/* 앱 내 분석: 썸네일이 자동 첨부된다. 순서 = 프롬프트 표 행 번호. */}
                   <AnalyzeButton
                     enabled={llm.enabled}
                     model={llm.model}
-                    getPrompt={() => buildMarketAnalysisPrompt(searchTerm, cohort, { topic })}
+                    getPrompt={() => buildMarketAnalysisPrompt(searchTerm, cohort, { topic, observations })}
                     thumbnailVideoIds={[...cohort.top, ...cohort.bottom].map((v) => v.id)}
                     label="앱에서 시장 분석"
                     onResult={(result: AnalysisResult) =>
@@ -451,6 +501,9 @@ export default function Home() {
                     highlightCutoff={highlightCutoff}
                     onOutput={history ? keepOutput : undefined}
                     topic={topic}
+                    observe={observe}
+                    observations={observations}
+                    onObserved={history ? keepObservation : undefined}
                   />
                 ))}
               </div>

@@ -17,6 +17,9 @@ import TranscriptField from './TranscriptField';
 import AnalyzeButton from './AnalyzeButton';
 import type { LlmStatus, AnalysisResult } from '../utils/llmClient';
 import type { NewOutputRecord } from '../utils/history';
+import ObserveButton from './ObserveButton';
+import type { ObserveStatus, VideoObservation } from '../utils/observeClient';
+import { getVideoDurationInSeconds } from '../utils/videoUtils';
 import { useState } from 'react';
 
 interface VideoCardProps {
@@ -33,9 +36,25 @@ interface VideoCardProps {
   onOutput?: (output: NewOutputRecord) => void;
   /** 시안용 "내 주제/채널". 비어 있으면 프롬프트가 입력 칸을 남긴다. */
   topic?: string;
+  /** 영상 관찰(Gemini) 가능 여부와 보관된 관찰. 서버에 키가 없으면 버튼이 잠긴다. */
+  observe?: ObserveStatus;
+  observations?: Record<string, VideoObservation>;
+  onObserved?: (observation: VideoObservation) => void;
 }
 
-export default function VideoCard({ video, displayMode, cohort, searchTerm, llm, highlightCutoff, onOutput, topic }: VideoCardProps) {
+export default function VideoCard({
+  video,
+  displayMode,
+  cohort,
+  searchTerm,
+  llm,
+  highlightCutoff,
+  onOutput,
+  topic,
+  observe,
+  observations,
+  onObserved,
+}: VideoCardProps) {
   const { metrics } = video;
   const outperforming = isOutperforming(metrics.performanceMultiple, highlightCutoff);
   const format = getVideoType(video.duration, video.liveStatus);
@@ -49,7 +68,8 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
   const [transcript, setTranscript] = useState('');
   const [showTranscript, setShowTranscript] = useState(false);
 
-  const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm, { transcript, topic });
+  const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm, { transcript, topic, observations });
+  const observeItems = [{ videoId: video.id, title: video.title, durationSec: getVideoDurationInSeconds(video.duration) }];
   // 복사·분석 두 경로가 같은 프롬프트를 쓰므로 보관도 같은 자리에서 한다.
   const keepPrompt = () =>
     onOutput?.({ kind: 'video-prompt', term: searchTerm, videoId: video.id, title: video.title, text: analysisPrompt() });
@@ -205,6 +225,18 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
           {showTranscript && (
             <div className="relative z-10">
               <TranscriptField videoId={video.id} value={transcript} onChange={setTranscript} />
+            </div>
+          )}
+          {observe?.enabled && !isLive && onObserved && (
+            <div className="mt-3">
+              <ObserveButton
+                enabled={observe.enabled}
+                model={observe.model}
+                items={observeItems}
+                existing={observations ?? {}}
+                onObserved={onObserved}
+                label="이 영상 관찰"
+              />
             </div>
           )}
           {llm.enabled && (

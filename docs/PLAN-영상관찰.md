@@ -1,6 +1,9 @@
 # 계획 — Gemini 영상 관찰 경로 (자막·훅·전개·썸네일 약속 이행을 "없음"에서 빼기)
 
-작성 2026-09-09. 상태: **설계 검토 대기**. 선행: [RESEARCH-없는것.md](RESEARCH-없는것.md).
+작성 2026-09-09. 상태: **구조 성립(코드 완료, 키 대기)** — 선행: [RESEARCH-없는것.md](RESEARCH-없는것.md).
+구현: `server/llm/observe.ts`(SDK 호출·JSON Schema·zod 재검증·오류 분류·비용), `api/observe`, `utils/observeClient.ts`(병렬 3·429 백오프),
+보관함 `observations`(30일), 프롬프트 "영상 관찰" 절 + `[영상관찰 #n mm:ss]` 태그, `ObserveButton`(대조군 20편·카드 단건).
+키 없이 검증: GET enabled:false·POST 503·버튼 미표시·저장된 관찰이 프롬프트에 실림. 남은 것은 §0 "키 없이는 못 잰 것" = ISSUES V.7.
 
 ## 0. 조사 결과 (공식 문서 기준, 2026-09-03~04 갱신본)
 
