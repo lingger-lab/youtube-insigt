@@ -1,7 +1,16 @@
 # CLAUDE.md — youtube-insigt
 
-YouTube 검색 결과를 **채널 평소 성과 대비** 얼마나 터졌는지로 정렬하고, 상위군/하위군
-대조 프롬프트를 만들어 외부 LLM에 붙여넣는 도구.
+YouTube 검색 결과를 **채널 평소 성과 대비** 얼마나 터졌는지로 정렬하고, 상위군/하위군 대조 +
+플레이북 + 시안(제목·썸네일·구조) 요청을 담은 프롬프트를 만들어 외부 LLM에 붙여넣는 도구.
+앱 자체는 **LLM 없이** 결정적으로 돌아간다(수집·계산·템플릿 조립). 선택 기능으로 앱 내 분석(Claude)과
+영상 관찰(Gemini)이 있고 둘 다 키가 없으면 잠긴다. 결과는 브라우저 보관함(localStorage, 30일)에만 남는다.
+
+## 문서 지도
+- [docs/FINDINGS.md](docs/FINDINGS.md) — 작업하며 알게 된 것·판단이 바뀐 지점 (시간순, 틀렸던 보고 포함)
+- [docs/ISSUES.md](docs/ISSUES.md) — 미해결 결함(A·B)·제품 제약(C)·키 확보 후 검증 체크리스트(V)·보류 설계(D)
+- [docs/RESEARCH-없는것.md](docs/RESEARCH-없는것.md) — "없는 데이터"의 진위와 정책 조사
+- [docs/PLAN-시안.md](docs/PLAN-시안.md), [docs/PLAN-영상관찰.md](docs/PLAN-영상관찰.md) — 설계(상태 줄 참고)
+- [docs/PRD.md](docs/PRD.md) · [docs/TRD.md](docs/TRD.md) · [docs/Tasks.md](docs/Tasks.md) — 기획·기술 사양(현행에 맞춰 갱신됨)
 
 ## 명령어
 
@@ -13,6 +22,8 @@ npm run build      # 프로덕션 빌드
 node node_modules/typescript/bin/tsc --noEmit   # 타입 검사
 npm run measure -- "키워드" ...                 # 실측 1차 (키워드당 검색 1회 소비)
 node --env-file=.env.local scripts/measure-isolate.ts "키워드" ...   # 실측 2차: 효과 분리
+node --env-file=.env.local scripts/scenario.ts "키워드"              # 절차·할당량·지표·프롬프트 단계별 출력 (원본 캐시)
+node --env-file=.env.local scripts/gemini-spike.ts <videoId> ...     # 영상 관찰 스파이크 (GEMINI_API_KEY 필요)
 ```
 
 > `npx tsc`는 쓰지 말 것. npm 레지스트리의 무관한 `tsc` 패키지가 잡힌다.
@@ -38,6 +49,15 @@ node --env-file=.env.local scripts/measure-isolate.ts "키워드" ...   # 실측
    런타임 import에는 `.ts` 확장자(`import type`은 지워지므로 예외), 그리고 **생성자
    파라미터 프로퍼티(`constructor(private x)`)·`enum`·`namespace` 금지** — 스트리핑이
    거부해 `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`로 테스트 파일 전체가 죽는다.
+
+6. **셀 수 있는 것은 앱이 센다.** 글자 수·중앙값·포맷·건수를 모델에게 맡기면 "기준이 없다"며 거부하거나
+   틀리게 센다(실측, FINDINGS F29). 프롬프트 표에 숫자로 넣고, 모델에겐 해석만 시킨다.
+
+7. **YouTube 비문서 API·다운로드 금지** (개발자 정책 III.D.7·III.E.1). 자막 timedtext 스크래핑, yt-dlp,
+   heatmap 파싱은 되더라도 넣지 않는다. 정식 경로는 사용자 붙여넣기와 Gemini 영상 관찰뿐.
+
+8. **문서는 코드와 같은 커밋에.** 명령어·환경변수·지표 정의·구조가 바뀌면 CLAUDE.md/README/docs를 같이 고친다.
+   한 세대 뒤처진 문서가 거짓 문장("썸네일은 클립보드로 안 넘어간다")을 남긴 적이 있다(F22).
 
 ## 할당량이 실질 상한이다 (2026-06-01 버킷 분리)
 
@@ -105,7 +125,7 @@ src/server/                서버 전용. 키는 이 경계 밖으로 안 나간
   llm/observe.ts           @google/genai · gemini-3.8-flash · 공개 YouTube URL을 넘겨 영상을 직접 보게 함(관찰만,
                            평가 금지) · JSON Schema + zod 재검증 · store:false · <5분 static / ≥5분 agentic
                            · GEMINI_API_KEY 없으면 차단. 편당 1요청
-  rateLimit.ts             인메모리 슬라이딩 윈도 (IP당 10분 검색 10회 / LLM 3회). 인스턴스 단위
+  rateLimit.ts             인메모리 슬라이딩 윈도 (IP당 10분 검색 10회 / LLM 3회 / 관찰 30회). 인스턴스 단위
 src/app/api/
   search/route.ts          POST 프록시 (zod 요청 검증, 레이트리밋, maxDuration 60s)
   thumbnail/route.ts       i.ytimg.com 프록시 (CORS 우회, 하루 캐시, 할당량 0)
@@ -122,10 +142,10 @@ src/app/utils/
   llmClient.ts             /api/analyze 호출
   observeClient.ts         /api/observe 호출, 병렬 3, 429 백오프
   youtubeApi.ts            /api/search 호출 + 타입 재수출
-  history.ts               브라우저 localStorage 보관함: 검색 이력(원본만) + 출력(프롬프트·LLM 결과)
+  history.ts               브라우저 localStorage 보관함: 검색 이력(원본만) + 출력(프롬프트·LLM 결과) + 영상 관찰 + 내 주제
 src/app/history/page.tsx   보관함 화면 (이력 열기 = /?h=<id>, 할당량 0)
 src/app/components/
-  VideoCard                카드(성과배수·일평균 배수·LIVE 배지·자막 토글·AI분석·앱 내 분석)
+  VideoCard                카드(성과배수·일평균 배수·구독자 대비·LIVE 배지·자막 토글·AI분석·앱 내 분석·영상 관찰)
   SearchDepthPicker        50/100/200 + 검색 버킷 소비 표시
   ThumbnailSheetButton     컨택트시트 복사     CopyButton  클립보드 텍스트 + aria-live
   AnalyzeButton            앱 내 LLM 분석 + 결과 패널   TranscriptField  자막 붙여넣기
@@ -140,8 +160,9 @@ scripts/
 **저장은 브라우저 localStorage뿐이다** (`utils/history.ts`). 서버에 DB·파일·캐시가 없다. 검색 성공
 시 원본 `VideoData`만 자동 저장하고 URL을 `/?h=<id>`로 바꿔 새로고침·뒤로가기가 할당량 없이
 복원된다. 파생 지표는 저장하지 않고 열 때 다시 계산한다(규칙 3). 복사한 프롬프트와 앱 내 LLM
-결과는 출력 보관함에 남는다(같은 본문은 1건). 예산(검색 3.5M자·출력 0.8M자)을 넘으면 오래된 것부터
-버리고, 손상된 항목은 버리되 `console.warn`으로 알린다. 다른 기기·시크릿 창에서는 안 보인다 — UI에 적혀 있다.
+결과는 출력 보관함에 남는다(같은 본문은 1건). 영상 관찰은 videoId 키로 덮어쓰고, "내 주제"도 여기 있다.
+예산(검색 3.5M자·출력 0.8M자·관찰 0.8M자)을 넘으면 오래된 것부터 버리고, 손상된 항목은 버리되 `console.warn`으로
+알린다. 다른 기기·시크릿 창에서는 안 보인다 — UI에 적혀 있다.
 **30일이 지난 이력·출력은 읽을 때 지운다** (`RETENTION_DAYS`) — YouTube API 개발자 정책 III.E.4.b: 소유자
 인가 없이 받은 통계(조회수·구독자수)는 30일 초과 보관 금지. 늘리지 말 것. 정책 조사: [docs/RESEARCH-없는것.md](docs/RESEARCH-없는것.md).
 
@@ -149,8 +170,9 @@ scripts/
 
 ## 제품 제약 (해결 불가, 숨기지 말 것)
 
-- **타인 영상의 자막은 공식 API로 못 받는다.** `captions.download`는 소유자 OAuth를
-  요구한다. 대본/훅 구조 분석은 사용자가 자막을 직접 붙여넣기 전까지 불가능하다.
+- **타인 영상의 자막 원문은 공식 API로 못 받는다.** `captions.download`는 소유자 OAuth를 요구한다.
+  훅·구조는 두 정식 경로로만 다룬다: (a) 사용자가 자막을 직접 붙여넣기, (b) Gemini 영상 관찰(공개 영상,
+  `GEMINI_API_KEY`) — 관찰은 모델 출력이라 `[영상관찰 #n mm:ss]`로 구분한다. 둘 다 없으면 "분석 대상 아님".
 - **시청 지속률·CTR·노출수**는 채널 소유자만(Analytics API) 볼 수 있다.
 - **썸네일은 텍스트 프롬프트에 실을 수 없다.** 그래서 "썸네일 시트 복사"가 격자 이미지를
   **별도로** 클립보드에 넣고(`#번호` = 표 행 번호), 프롬프트에는 URL만 남긴다. 앱 내 LLM
@@ -160,9 +182,9 @@ scripts/
   상위를 독식한다(실측).
 - 프롬프트는 **지어내기를 허가하지 않는다.** "부족하면 가정하고 진행"이나
   "내부 사고는 숨기고 최종안만" 같은 지시를 다시 넣지 말 것. 회귀 테스트가 막고 있다.
-- **시안(제목·썸네일·구조)은 만들되, 모든 문장에 `[행 n]` / `[원칙 ID]` / `[가정]` 중 하나를
-  달게 한다.** 데이터(`[행]`)가 얇은 자리는 앱이 든 플레이북(`utils/playbook.ts`)의 원칙으로
-  메우고, 그것도 없으면 `[가정]`으로 드러낸다. 원칙과 데이터가 충돌하면 데이터 우선.
+- **시안(제목·썸네일·구조)은 만들되, 모든 문장에 `[행 n]` / `[원칙 ID]` / `[영상관찰 #n mm:ss]` /
+  `[가정]` / `[데이터 없음]` 중 하나를 달게 한다.** 데이터(`[행]`)가 얇은 자리는 앱이 든 플레이북
+  (`utils/playbook.ts`)의 원칙으로 메우고, 그것도 없으면 `[가정]`으로 드러낸다. 원칙과 데이터가 충돌하면 데이터 우선.
   플레이북에 출처·신뢰도 없는 항목이나 "n배 CTR" 같은 검증 불가 수치를 넣지 말 것(테스트가 막음).
 - **시안의 품질은 앱도 LLM도 판정하지 못한다.** 판정은 YouTube Studio Test & Compare
   (롱폼, 제목·썸네일 3종, 승자 = 노출당 시청시간)뿐이다. 그래서 출력이 "3안 세트"다.
