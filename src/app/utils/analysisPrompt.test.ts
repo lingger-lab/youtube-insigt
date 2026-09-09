@@ -441,3 +441,39 @@ describe('표 — 앱이 셀 수 있는 값은 앱이 센다 (V.5 실측 반영)
     assert.ok(prompt.includes('체크표'));
   });
 });
+
+describe('0 unit 필드 — PPL·주제·음성 언어 (RESEARCH-없는것)', () => {
+  const set = withMetrics(
+    Array.from({ length: 8 }, (_, i) =>
+      makeVideo(`p${i}`, 8 - i, {
+        channel: reliableChannel(),
+        hasPaidProductPlacement: i === 0,
+        topicCategories: i % 2 === 0 ? ['Food'] : ['Food', 'Lifestyle (sociology)'],
+        audioLanguage: i < 6 ? 'ko' : null,
+      }),
+    ),
+    NOW,
+  );
+  const prompt = buildMarketAnalysisPrompt('키워드', selectCohort(set, 4));
+
+  test('표에 PPL 열이 있고 유료 PPL 영상은 Y로 표시한다', () => {
+    assert.ok(prompt.includes('| PPL |'));
+    assert.ok(/\| p0[^\n]*\| Y \|/.test(prompt) || prompt.includes('| Y |'));
+  });
+
+  test('군 요약에 주제 분포와 음성 언어를 싣는다 (앱이 셈)', () => {
+    assert.ok(prompt.includes('주제: Food'));
+    assert.ok(prompt.includes('음성: ko'));
+  });
+
+  test('필드가 없는 옛 이력(2026-09-09 이전)도 깨지지 않는다', () => {
+    const old = withMetrics([makeVideo('o', 3, { channel: reliableChannel() }), makeVideo('o2', 2, { channel: reliableChannel() })], NOW);
+    const p = buildMarketAnalysisPrompt('키워드', selectCohort(old, 1));
+    assert.ok(p.includes('| — |') || p.includes('주제: —'));
+  });
+
+  test('"없는 것"에서 썸네일은 없음이 아니라 첨부 방법으로, 자막은 정식 API 제약으로 적는다', () => {
+    assert.ok(prompt.includes('썸네일 이미지 — 텍스트로는 못 실음'));
+    assert.ok(!prompt.includes('**썸네일 이미지**:'));
+  });
+});

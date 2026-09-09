@@ -106,11 +106,22 @@ function toLiveStatus(raw: string | undefined): LiveStatus {
  * 예전에는 검색 페이지마다 한 번씩 순차로 불러 왕복이 길어졌다.
  * 이 호출은 페이지당 1단위라 나눠 불러도 할당량은 같다.
  */
+/** "https://en.wikipedia.org/wiki/Lifestyle_(sociology)" → "Lifestyle (sociology)" */
+function topicTitle(url: string): string {
+  const last = url.split('/').pop() ?? url;
+  try {
+    return decodeURIComponent(last).replace(/_/g, ' ');
+  } catch {
+    return last.replace(/_/g, ' ');
+  }
+}
+
 async function fetchVideoDetails(videoIds: string[], stats: CallStats): Promise<VideoCore[]> {
   const batches = await Promise.all(
     chunk(videoIds, PAGE_SIZE).map(async (batch) => {
       const params = new URLSearchParams({
-        part: 'snippet,statistics,contentDetails',
+        // part를 늘려도 비용은 그대로(1 unit). 받을 수 있는 필드는 전부 받는다.
+        part: 'snippet,statistics,contentDetails,topicDetails,paidProductPlacementDetails',
         id: batch.join(','),
       });
       const payload = parseOrThrow(
@@ -140,6 +151,9 @@ async function fetchVideoDetails(videoIds: string[], stats: CallStats): Promise<
           categoryId: snippet?.categoryId ?? '',
           hasCaption: item.contentDetails?.caption === 'true',
           liveStatus: toLiveStatus(snippet?.liveBroadcastContent),
+          hasPaidProductPlacement: item.paidProductPlacementDetails?.hasPaidProductPlacement ?? false,
+          topicCategories: (item.topicDetails?.topicCategories ?? []).map(topicTitle),
+          audioLanguage: snippet?.defaultAudioLanguage ?? null,
         };
       });
     }),

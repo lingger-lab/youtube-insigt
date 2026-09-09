@@ -105,6 +105,7 @@ function installFetch(options: {
               channelTitle: `채널 ${n % channelCount}`,
               tags: ['태그A', '태그B'],
               categoryId: '22',
+              ...(n % 2 === 0 ? { defaultAudioLanguage: 'ko' } : {}),
               thumbnails: {
                 medium: { url: `https://i.ytimg.com/vi/${id}/mqdefault.jpg` },
                 high: { url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg` },
@@ -119,6 +120,9 @@ function installFetch(options: {
               commentCount: String(n),
             },
             contentDetails: { duration: n % 7 === 0 && n > 0 ? 'P0D' : 'PT10M', caption: n % 2 === 0 ? 'true' : 'false' },
+            // 0 unit 추가 필드: 5의 배수는 유료 PPL, 주제는 Wikipedia URL로 온다, 홀수는 음성 언어 없음
+            paidProductPlacementDetails: { hasPaidProductPlacement: n % 5 === 0 },
+            topicDetails: { topicCategories: ['https://en.wikipedia.org/wiki/Food', 'https://en.wikipedia.org/wiki/Lifestyle_(sociology)'] },
           };
         }),
       });
@@ -158,6 +162,10 @@ function jsonResponse(body: unknown): Response {
 
 function countBy(endpoint: string): number {
   return calls.filter((c) => c.endpoint === endpoint).length;
+}
+
+function requestedParts(endpoint: string): string[] {
+  return calls.filter((c) => c.endpoint === endpoint).map((c) => c.params.get('part') ?? '');
 }
 
 beforeEach(() => {
@@ -253,6 +261,24 @@ describe('searchYouTube — 필드 매핑', () => {
     assert.equal(first.commentCount, 0);
   });
 
+  // part를 늘려도 비용은 그대로다. 받을 수 있는 필드는 전부 받는다 (CLAUDE.md).
+  test('0 unit 필드 — PPL 여부·주제 분류(Wikipedia URL의 제목만)·음성 언어를 담는다', async () => {
+    installFetch({ totalVideos: 2, channelCount: 1 });
+    const { videos } = await searchYouTube('테스트', FILTERS, 50);
+    assert.equal(videos[0].hasPaidProductPlacement, true);
+    assert.equal(videos[1].hasPaidProductPlacement, false);
+    assert.deepEqual(videos[0].topicCategories, ['Food', 'Lifestyle (sociology)']);
+    assert.equal(videos[0].audioLanguage, 'ko');
+    assert.equal(videos[1].audioLanguage, null);
+  });
+
+  test('videos.list에 topicDetails·paidProductPlacementDetails part를 요청한다', async () => {
+    installFetch({ totalVideos: 1, channelCount: 1 });
+    await searchYouTube('테스트', FILTERS, 50);
+    const part = requestedParts('videos')[0];
+    assert.ok(part.includes('topicDetails') && part.includes('paidProductPlacementDetails'), part);
+  });
+
   test('liveBroadcastContent를 liveStatus로 담는다 (없으면 none)', async () => {
     installFetch({ totalVideos: 8, channelCount: 1 });
     const { videos } = await searchYouTube('테스트', FILTERS, 50);
@@ -265,7 +291,7 @@ describe('searchYouTube — 필드 매핑', () => {
     installFetch({ totalVideos: 1, channelCount: 1 });
     await searchYouTube('테스트', FILTERS, 50);
     const videosCall = calls.find((c) => c.endpoint === 'videos');
-    assert.equal(videosCall?.params.get('part'), 'snippet,statistics,contentDetails');
+    assert.equal(videosCall?.params.get('part'), 'snippet,statistics,contentDetails,topicDetails,paidProductPlacementDetails');
   });
 
   test('큰 썸네일은 maxres > high > medium 순으로 고른다', async () => {

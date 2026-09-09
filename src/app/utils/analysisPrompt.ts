@@ -122,7 +122,7 @@ function cohortSummary(videos: VideoWithMetrics[]): string {
   const like = median(videos.map((v) => v.metrics.likeRate).filter((x): x is number => x !== null));
   const mult = median(videos.map((v) => v.metrics.performanceMultiple).filter((x): x is number => x !== null));
   const chars = median(videos.map((v) => [...v.title].length));
-  return `요약: n=${videos.length} · Shorts ${shorts} / 롱폼 ${long}${live ? ` / 라이브 ${live}` : ''} · 길이 중앙값 ${len === null ? '—' : clockOf(len)} · 경과일 중앙값 ${days === null ? '—' : Math.round(days).toLocaleString()}일 · 좋아요율 중앙값 ${formatPercent(like)} · 성과배수 중앙값 ${formatMultiple(mult)} · 제목 글자수 중앙값 ${chars === null ? '—' : Math.round(chars)}`;
+  return `요약: n=${videos.length} · Shorts ${shorts} / 롱폼 ${long}${live ? ` / 라이브 ${live}` : ''} · 길이 중앙값 ${len === null ? '—' : clockOf(len)} · 경과일 중앙값 ${days === null ? '—' : Math.round(days).toLocaleString()}일 · 좋아요율 중앙값 ${formatPercent(like)} · 성과배수 중앙값 ${formatMultiple(mult)} · 제목 글자수 중앙값 ${chars === null ? '—' : Math.round(chars)} · 주제: ${topicDistribution(videos)} · 음성: ${audioDistribution(videos)}`;
 }
 
 function tableRows(videos: VideoWithMetrics[], startIndex: number): string {
@@ -139,6 +139,7 @@ function tableRows(videos: VideoWithMetrics[], startIndex: number): string {
         v.liveStatus === 'none' ? formatDuration(v.duration) : 'LIVE',
         formatPercent(v.metrics.likeRate),
         daysLabel(v),
+        pplLabel(v),
         cell(tagsLabel(v)),
       ].join(' | '),
     )
@@ -146,10 +147,43 @@ function tableRows(videos: VideoWithMetrics[], startIndex: number): string {
     .join('\n');
 }
 
-const TABLE_HEADER = `| # | 제목 | 글자수 | 포맷 | 성과배수 | 조회수 | 길이 | 좋아요율 | 경과 | 태그 |
-|---|---|---|---|---|---|---|---|---|---|`;
+/** 유료 PPL 표시. 옛 이력(필드 없음)은 —. */
+function pplLabel(v: VideoWithMetrics): string {
+  if (v.hasPaidProductPlacement === undefined) return '—';
+  return v.hasPaidProductPlacement ? 'Y' : 'N';
+}
 
-const TABLE_LEGEND = `범례: 글자수 = 공백·기호·해시태그 포함 유니코드 문자 수(앱이 셈) · 태그 (없음) = 업로더가 태그를 달지 않음(데이터 없음이 아님) · 포맷은 길이·liveBroadcastContent로 판별.
+/** "Food 4, Lifestyle (sociology) 2" 처럼 빈도순. 필드 없는 옛 이력만이면 —. */
+function topicDistribution(videos: VideoWithMetrics[]): string {
+  const counts = new Map<string, number>();
+  let known = 0;
+  for (const v of videos) {
+    if (!v.topicCategories) continue;
+    known += 1;
+    for (const t of v.topicCategories) counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+  if (known === 0) return '—';
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+  return top.length ? top.map(([t, n]) => `${t} ${n}`).join(', ') : '(없음)';
+}
+
+function audioDistribution(videos: VideoWithMetrics[]): string {
+  const counts = new Map<string, number>();
+  let known = 0;
+  for (const v of videos) {
+    if (v.audioLanguage === undefined) continue;
+    known += 1;
+    const key = v.audioLanguage ?? '미지정';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  if (known === 0) return '—';
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([l, n]) => `${l} ${n}`).join(', ');
+}
+
+const TABLE_HEADER = `| # | 제목 | 글자수 | 포맷 | 성과배수 | 조회수 | 길이 | 좋아요율 | 경과 | PPL | 태그 |
+|---|---|---|---|---|---|---|---|---|---|---|`;
+
+const TABLE_LEGEND = `범례: 글자수 = 공백·기호·해시태그 포함 유니코드 문자 수(앱이 셈) · 태그 (없음) = 업로더가 태그를 달지 않음(데이터 없음이 아님) · 포맷은 길이·liveBroadcastContent로 판별 · PPL = 업로더가 표시한 유료 광고 포함 여부(Y/N, — 는 이 필드가 없던 옛 이력).
 **포맷이 다른 행끼리 길이·구조·훅을 비교하지 말 것** — 포맷별로 나눠 세고, 한쪽 포맷만 있으면 그렇게 적는다.`;
 
 /** 사용자가 붙여넣은 자막에서 프롬프트에 싣는 최대 길이. 넘치면 앞부분만 싣고 그 사실을 적는다. */
@@ -164,7 +198,7 @@ function dataLimits(hasTranscript: boolean): string {
     ? ''
     : `\n- **영상 내용/자막**: YouTube 공식 API는 타인 영상의 자막을 제공하지 않는다(소유자 OAuth 필요). 대본 구조·훅·전개는 자막을 직접 붙여넣기 전까지 분석 대상이 아니다.`;
   return `## 이 데이터에 없는 것 (추측하지 말 것)
-- **썸네일 이미지**: 앱의 "썸네일 시트 복사"로 만든 격자 이미지(각 칸의 #번호 = 아래 표의 행 번호)를 이 대화에 붙여넣거나, 아래 링크를 직접 열어 첨부하면 그때 분석 가능. 첨부 전에는 썸네일 구성·색·표정에 대해 쓰지 말 것.${transcriptLine}
+- **썸네일 이미지 — 텍스트로는 못 실음** (없는 게 아니라 첨부 방법의 문제): 앱의 "썸네일 시트 복사"로 만든 격자 이미지(각 칸의 #번호 = 아래 표의 행 번호)를 이 대화에 붙여넣거나, 아래 링크를 직접 열어 첨부하면 그때 분석 가능. 첨부 전에는 썸네일 구성·색·표정에 대해 쓰지 말 것.${transcriptLine}
 - **시청 지속률·CTR·노출수**: 채널 소유자만 볼 수 있다. 이탈 구간 추정 금지.
 - **알고리즘 노출량**: 조회수에는 추천 노출 효과가 섞여 있고, 그 비중은 알 수 없다.
 - **조회수 집계 기준 변경**: 2026-08-27부터 모든 포맷에서 재생 시작 즉시(자동재생·호버 포함) 조회수로 센다. 그 이전 영상과 이후 영상의 조회수·일평균은 같은 기준이 아니다.`;
@@ -404,6 +438,7 @@ ${TABLE_LEGEND}
 - **업로드**: ${video.metrics.daysSincePublish}일 전
 - **태그**: ${tagsLabel(video)}
 - **자막 트랙**: ${video.hasCaption ? '있음 (내용은 API로 받을 수 없음)' : '없음'}
+- **유료 PPL 표시**: ${pplLabel(video)} / **주제 분류**: ${video.topicCategories ? video.topicCategories.join(', ') || '(없음)' : '—'} / **음성 언어**: ${video.audioLanguage === undefined ? '—' : (video.audioLanguage ?? '미지정')}
 - **검색어**: "${searchTerm}"
 - **링크**: https://www.youtube.com/watch?v=${video.id}
 

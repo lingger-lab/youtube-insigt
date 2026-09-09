@@ -161,6 +161,8 @@ scripts/
   (롱폼, 제목·썸네일 3종, 승자 = 노출당 시청시간)뿐이다. 그래서 출력이 "3안 세트"다.
 - **대조군은 `format-median` 기준선 영상을 먼저 쓴다.** `lifetime-mean`(Shorts 섞인 채널 평균)은
   모자랄 때만. 실측에서 305만 구독 채널 롱폼이 0.08배로 하위군에 들어가 대조를 오염시켰다.
+- `videos.list`는 `topicDetails,paidProductPlacementDetails`까지 요청한다(0 unit): 유료 PPL 여부·주제 분류(Wikipedia
+  제목)·음성 언어를 표·요약에 싣는다. 2026-09-09 이전 보관분에는 없어 optional이며 표에는 `—`로 나온다.
 - `RecentUpload.title`은 이미 부르는 `videos.list?part=snippet`에서 오므로 할당량 0으로 저장한다.
   상위 영상 vs 그 채널 평소 제목 대조가 가장 통제된 신호다. 2026-09-09 이전 보관분에는 없다.
 

@@ -93,6 +93,15 @@ export interface VideoData {
   categoryId: string;
   /** 자막 트랙 존재 여부. 내용은 소유자만 받을 수 있다. */
   hasCaption: boolean;
+  /**
+   * 아래 셋은 0 unit 추가 필드(2026-09-09). 이전에 브라우저 보관함에 저장된 이력에는 없다 — optional인 이유.
+   * 유료 PPL 표시(`paidProductPlacementDetails.hasPaidProductPlacement`).
+   */
+  hasPaidProductPlacement?: boolean;
+  /** `topicDetails.topicCategories`의 Wikipedia URL에서 제목만 (예: "Food", "Lifestyle (sociology)") */
+  topicCategories?: string[];
+  /** `snippet.defaultAudioLanguage`. 없으면 null */
+  audioLanguage?: string | null;
   liveStatus: LiveStatus;
   channel: ChannelSnapshot;
 }
