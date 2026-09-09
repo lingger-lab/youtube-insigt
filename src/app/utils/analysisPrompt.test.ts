@@ -44,6 +44,23 @@ function makeVideo(id: string, multiple: number, overrides: Partial<VideoData> =
   };
 }
 
+/** 같은 포맷 동료 3편(각 100,000회)이 있어 기준선이 format-median이 되는 채널 */
+function reliableChannel(): VideoData['channel'] {
+  const base = makeVideo('_', 1).channel;
+  return {
+    ...base,
+    uploadsPlaylistId: 'UUch1',
+    recentUploads: ['p1', 'p2', 'p3'].map((id) => ({
+      id,
+      title: `동료 ${id}`,
+      viewCount: 100_000,
+      duration: 'PT10M',
+      publishedAt: new Date(NOW - 30 * DAY_MS).toISOString(),
+      liveStatus: 'none' as const,
+    })),
+  };
+}
+
 /** multiple이 큰 것부터 작은 것까지 n개 */
 function makeSet(n: number) {
   return withMetrics(
@@ -75,6 +92,38 @@ describe('selectCohort', () => {
     assert.deepEqual([top.length, bottom.length], [0, 0]);
   });
 
+  // 실측: 하위군 10건 중 3건이 305만 구독 채널의 롱폼인데 기준선이 Shorts 섞인 채널 평균이라
+  // 0.08~0.18배로 나왔다. 신뢰도 낮은 기준선이 대조군을 오염시키면 시안 근거가 틀어진다.
+  test('포맷 중앙값 영상이 충분하면 채널 전체 평균(lifetime-mean) 영상은 대조군에서 뺀다', () => {
+    const reliable = withMetrics(
+      Array.from({ length: 30 }, (_, i) => makeVideo(`r${i}`, 30 - i, { channel: reliableChannel() })),
+      NOW,
+    );
+    const fallback = withMetrics([makeVideo('f-low', 0.1), makeVideo('f-mid', 15)], NOW);
+    assert.equal(fallback[0].metrics.baselineSource, 'lifetime-mean');
+
+    const { top, bottom } = selectCohort([...reliable, ...fallback], 10);
+    const ids = [...top, ...bottom].map((v) => v.id);
+    assert.equal(ids.includes('f-low'), false, '0.1배 lifetime-mean 영상이 하위군에 들어갔다');
+    assert.equal(ids.includes('f-mid'), false);
+    assert.equal(bottom[bottom.length - 1].id, 'r29');
+  });
+
+  test('포맷 중앙값 영상이 모자라면 lifetime-mean 영상으로 채운다', () => {
+    const reliable = withMetrics(
+      Array.from({ length: 4 }, (_, i) => makeVideo(`r${i}`, 20 - i, { channel: reliableChannel() })),
+      NOW,
+    );
+    const fallback = withMetrics(
+      Array.from({ length: 6 }, (_, i) => makeVideo(`f${i}`, 6 - i)),
+      NOW,
+    );
+    const { top, bottom } = selectCohort([...reliable, ...fallback], 10);
+    assert.equal(top.length + bottom.length, 10);
+    assert.ok(bottom.some((v) => v.id.startsWith('f')));
+    assert.equal(top[0].id, 'r0');
+  });
+
   test('성과배수를 계산할 수 없는 항목은 제외한다', () => {
     const measurable = makeSet(4);
     // 영상이 1편뿐인 채널 — 비교할 나머지가 없어 성과배수를 낼 수 없다
@@ -98,6 +147,18 @@ describe('buildMarketAnalysisPrompt', () => {
 
   test('성과배수가 채널 크기를 이미 제거했음을 설명한다', () => {
     assert.ok(prompt.includes('채널 규모 효과는 이미 나눠서 제거'));
+  });
+
+  test('성과배수 정의가 현행(같은 포맷 최근 영상 중앙값)이다 — 옛 "채널 평균" 정의 금지', () => {
+    assert.ok(prompt.includes('같은 포맷'));
+    assert.ok(prompt.includes('중앙값'));
+    assert.ok(!prompt.includes('÷ 그 채널의 평균 조회수'));
+  });
+
+  test('하위군을 "미달"로 부르지 않는다 — 검색 결과는 승자 집합이라 하위군도 대개 기준선 이상', () => {
+    assert.ok(!prompt.includes('채널 평소 대비 미달'));
+    assert.ok(prompt.includes('결과 안에서 상대적으로 낮'));
+    assert.ok(prompt.includes('검색에 아예 안 뜬 영상'));
   });
 
   test('표본 크기를 명시한다', () => {
@@ -256,5 +317,163 @@ describe('표 형식', () => {
     const video = withMetrics([makeVideo('v0', 5, { tags: [] })], NOW);
     const prompt = buildMarketAnalysisPrompt('키워드', { top: video, bottom: video });
     assert.ok(prompt.includes('(없음)'));
+  });
+});
+
+describe('시안 절 — 관찰·원칙·가정 중 하나를 근거로', () => {
+  const longSet = withMetrics(
+    Array.from({ length: 20 }, (_, i) => makeVideo(`L${i}`, 20 - i, { channel: reliableChannel() })),
+    NOW,
+  );
+  const cohort = selectCohort(longSet, 5);
+  const prompt = buildMarketAnalysisPrompt('테스트 키워드', cohort, { topic: '홈베이킹 입문' });
+
+  test('원본 기획의 5부 구조를 되살린다: 트리거 → 세트 5개 → 구조 → 매핑표 → 복사용 요약', () => {
+    for (const heading of ['클릭 트리거', '세트 5개', '구조 설계', '매핑표', '복사용 요약']) {
+      assert.ok(prompt.includes(heading), heading);
+    }
+  });
+
+  test('모든 시안 문장에 [행 n] / [원칙 ID] / [가정] 중 하나를 달게 한다', () => {
+    assert.ok(prompt.includes('[행 n]'));
+    assert.ok(prompt.includes('[원칙 '));
+    assert.ok(prompt.includes('[가정]'));
+  });
+
+  test('플레이북을 신뢰도·출처와 함께 싣고, 데이터가 원칙보다 우선한다고 적는다', () => {
+    assert.ok(prompt.includes('일반 원칙 (플레이북'));
+    assert.ok(prompt.includes('[원칙 T2 · 중간]'));
+    assert.ok(prompt.includes('데이터가 우선'));
+  });
+
+  test('내 주제가 시안 절에 실린다', () => {
+    assert.ok(prompt.includes('홈베이킹 입문'));
+  });
+
+  test('내 주제가 없으면 입력 칸을 남기고, 비우면 검색어와 같은 주제로 가정한다고 적는다', () => {
+    const p = buildMarketAnalysisPrompt('테스트 키워드', cohort);
+    assert.ok(p.includes('[여기에 내 주제 입력]'));
+    assert.ok(p.includes('같은 주제로 가정'));
+  });
+
+  test('상위군이 롱폼이면 롱폼 원칙(S1·K2)만, Shorts면 Shorts 원칙(S2·K1)만 싣는다', () => {
+    assert.ok(prompt.includes('[원칙 S1') && !prompt.includes('[원칙 S2'));
+    const shortsSet = withMetrics(
+      Array.from({ length: 20 }, (_, i) =>
+        makeVideo(`S${i}`, 20 - i, { duration: 'PT30S', channel: { ...reliableChannel(), recentUploads: reliableChannel().recentUploads!.map((u) => ({ ...u, duration: 'PT30S' })) } }),
+      ),
+      NOW,
+    );
+    const p = buildMarketAnalysisPrompt('테스트 키워드', selectCohort(shortsSet, 5));
+    assert.ok(p.includes('[원칙 S2') && !p.includes('[원칙 S1'));
+  });
+
+  test('상위 영상마다 그 채널 평소 제목(같은 포맷 동료)을 대조 표로 싣는다 — 할당량 0인 가장 통제된 신호', () => {
+    assert.ok(prompt.includes('채널 평소 제목'));
+    assert.ok(prompt.includes('동료 p1'));
+  });
+
+  test('평소 제목이 저장되지 않은 이력(2026-09-09 이전)이면 표 대신 그 사실을 적는다', () => {
+    const p = buildMarketAnalysisPrompt('테스트 키워드', selectCohort(makeSet(20), 5));
+    assert.ok(p.includes('평소 제목') && p.includes('저장되지 않'));
+    assert.ok(!p.includes('동료 p1'));
+  });
+
+  test('썸네일 구성 근거는 시트가 첨부됐을 때만 #번호를 쓰고, 아니면 원칙만 쓰게 한다', () => {
+    assert.ok(prompt.includes('시트가 첨부'));
+  });
+
+  test('오해 유발 자기점검과 Test & Compare 검증 절차를 요구한다', () => {
+    assert.ok(prompt.includes('지킬 수 있는가'));
+    assert.ok(prompt.includes('Test & Compare'));
+  });
+
+  test('상위군 제목을 베끼지 말고 형태만 가져오게 한다', () => {
+    assert.ok(prompt.includes('베끼지'));
+  });
+
+  test('단건 프롬프트에도 같은 시안 절이 붙고 주제가 실린다', () => {
+    const p = buildSingleVideoPrompt(cohort.top[0], cohort, '테스트 키워드', { topic: '홈베이킹 입문' });
+    assert.ok(p.includes('클릭 트리거') && p.includes('복사용 요약'));
+    assert.ok(p.includes('홈베이킹 입문'));
+    assert.ok(p.includes('[원칙 S1'));
+  });
+});
+
+// V.5 첫 실측(GPT, 2026-09-09)에서 드러난 표 결함: 글자 수·포맷을 모델이 "데이터 없음"으로 처리했고,
+// 태그 (없음)을 데이터 없음으로 오독했으며, 중앙값을 손으로 계산했다. 셀 수 있는 것은 앱이 센다.
+describe('표 — 앱이 셀 수 있는 값은 앱이 센다 (V.5 실측 반영)', () => {
+  const mixed = withMetrics(
+    [
+      ...Array.from({ length: 6 }, (_, i) => makeVideo(`s${i}`, 30 - i, { duration: 'PT24S', title: `짧은 영상 ${i}`, channel: reliableChannel() })),
+      ...Array.from({ length: 6 }, (_, i) => makeVideo(`l${i}`, 6 - i, { duration: 'PT4M10S', title: `긴 롱폼 영상 제목 ${i}`, channel: reliableChannel() })),
+    ],
+    NOW,
+  );
+  const prompt = buildMarketAnalysisPrompt('키워드', selectCohort(mixed, 6));
+
+  test('표에 포맷 열과 제목 글자수 열이 있다', () => {
+    assert.ok(prompt.includes('| 포맷 |'));
+    assert.ok(prompt.includes('| 글자수 |'));
+    assert.ok(/\| Shorts \|/.test(prompt) && /\| 롱폼 \|/.test(prompt));
+    assert.ok(prompt.includes(`| ${'짧은 영상 0'.length} |`));
+  });
+
+  test('군마다 앱이 계산한 요약(건수·포맷 구성·중앙값)을 싣는다', () => {
+    assert.ok(prompt.includes('요약: n=6'));
+    assert.ok(prompt.includes('Shorts 6 / 롱폼 0'));
+    assert.ok(prompt.includes('길이 중앙값 0:24'));
+    assert.ok(prompt.includes('경과일 중앙값'));
+    assert.ok(prompt.includes('좋아요율 중앙값'));
+  });
+
+  test('태그 (없음)의 뜻과 글자수 기준을 범례로 적는다', () => {
+    assert.ok(prompt.includes('(없음) = 업로더가 태그를 달지 않음'));
+    assert.ok(prompt.includes('글자수 = 공백·기호·해시태그 포함'));
+  });
+
+  test('포맷이 다른 행끼리 길이·구조를 비교하지 말라고 못 박는다', () => {
+    assert.ok(prompt.includes('포맷이 다른 행끼리'));
+  });
+
+  test('[데이터 없음]을 공식 태그로 허용하고, 답변 끝 체크표를 요구한다', () => {
+    assert.ok(prompt.includes('[데이터 없음]'));
+    assert.ok(prompt.includes('체크표'));
+  });
+});
+
+describe('0 unit 필드 — PPL·주제·음성 언어 (RESEARCH-없는것)', () => {
+  const set = withMetrics(
+    Array.from({ length: 8 }, (_, i) =>
+      makeVideo(`p${i}`, 8 - i, {
+        channel: reliableChannel(),
+        hasPaidProductPlacement: i === 0,
+        topicCategories: i % 2 === 0 ? ['Food'] : ['Food', 'Lifestyle (sociology)'],
+        audioLanguage: i < 6 ? 'ko' : null,
+      }),
+    ),
+    NOW,
+  );
+  const prompt = buildMarketAnalysisPrompt('키워드', selectCohort(set, 4));
+
+  test('표에 PPL 열이 있고 유료 PPL 영상은 Y로 표시한다', () => {
+    assert.ok(prompt.includes('| PPL |'));
+    assert.ok(/\| p0[^\n]*\| Y \|/.test(prompt) || prompt.includes('| Y |'));
+  });
+
+  test('군 요약에 주제 분포와 음성 언어를 싣는다 (앱이 셈)', () => {
+    assert.ok(prompt.includes('주제: Food'));
+    assert.ok(prompt.includes('음성: ko'));
+  });
+
+  test('필드가 없는 옛 이력(2026-09-09 이전)도 깨지지 않는다', () => {
+    const old = withMetrics([makeVideo('o', 3, { channel: reliableChannel() }), makeVideo('o2', 2, { channel: reliableChannel() })], NOW);
+    const p = buildMarketAnalysisPrompt('키워드', selectCohort(old, 1));
+    assert.ok(p.includes('| — |') || p.includes('주제: —'));
+  });
+
+  test('"없는 것"에서 썸네일은 없음이 아니라 첨부 방법으로, 자막은 정식 API 제약으로 적는다', () => {
+    assert.ok(prompt.includes('썸네일 이미지 — 텍스트로는 못 실음'));
+    assert.ok(!prompt.includes('**썸네일 이미지**:'));
   });
 });

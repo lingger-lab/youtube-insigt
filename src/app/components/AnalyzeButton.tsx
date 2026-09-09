@@ -13,6 +13,8 @@ interface AnalyzeButtonProps {
   /** 이미지 블록으로 자동 첨부할 썸네일. 순서 = 프롬프트 표 행 번호. */
   thumbnailVideoIds: string[];
   label?: string;
+  /** 결과가 오면 알린다 (보관함 저장용). 돈 주고 받은 결과를 새로고침에 잃지 않기 위해. */
+  onResult?: (result: AnalysisResult) => void;
 }
 
 type State =
@@ -33,6 +35,7 @@ export default function AnalyzeButton({
   getPrompt,
   thumbnailVideoIds,
   label = '앱에서 분석',
+  onResult,
 }: AnalyzeButtonProps) {
   const [state, setState] = useState<State>({ kind: 'idle' });
 
@@ -43,6 +46,7 @@ export default function AnalyzeButton({
     try {
       const result = await requestAnalysis({ prompt: getPrompt(), thumbnailVideoIds });
       setState({ kind: 'done', result });
+      onResult?.(result);
     } catch (error) {
       setState({ kind: 'error', message: error instanceof Error ? error.message : '분석에 실패했습니다.' });
     }

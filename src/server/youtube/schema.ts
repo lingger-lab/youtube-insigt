@@ -36,6 +36,7 @@ export const VideoItemSchema = z.object({
       categoryId: z.string().optional(),
       // 'none' | 'live' | 'upcoming'. 라이브·예정 영상은 duration이 P0D로 온다.
       liveBroadcastContent: z.string().optional(),
+      defaultAudioLanguage: z.string().optional(),
       thumbnails: z
         .object({
           medium: ThumbnailSchema,
@@ -59,6 +60,8 @@ export const VideoItemSchema = z.object({
       caption: z.string().optional(),
     })
     .optional(),
+  paidProductPlacementDetails: z.object({ hasPaidProductPlacement: z.boolean().optional() }).optional(),
+  topicDetails: z.object({ topicCategories: z.array(z.string()).optional() }).optional(),
 });
 
 export const VideoListResponseSchema = z.object({

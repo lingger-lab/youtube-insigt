@@ -170,6 +170,7 @@ export type SortKey =
   | 'viewsPerDay'
   | 'likeRate'
   | 'subscriberCount'
+  | 'subscriberRatio'
   | 'publishedAt';
 
 function sortValue(video: VideoWithMetrics, key: SortKey): number | null {
@@ -184,6 +185,8 @@ function sortValue(video: VideoWithMetrics, key: SortKey): number | null {
       return video.metrics.likeRate;
     case 'subscriberCount':
       return video.channel.subscriberCount;
+    case 'subscriberRatio':
+      return video.metrics.subscriberRatio;
     case 'publishedAt': {
       const t = new Date(video.publishedAt).getTime();
       return Number.isFinite(t) ? t : null;

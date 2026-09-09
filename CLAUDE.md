@@ -70,7 +70,7 @@ node --env-file=.env.local scripts/measure-isolate.ts "키워드" ...   # 실측
 | 일평균 조회수 | 조회수 ÷ max(1, 경과일) |
 | 일평균 배수 | 일평균 조회수 ÷ 같은 채널·같은 포맷 동료의 일평균 중앙값. 누적 배수의 짝 (`viewsPerDayMultiple`) |
 | 좋아요율 / 댓글율 | 좋아요(댓글) ÷ 조회수 |
-| 구독자 대비 | 조회수 ÷ 구독자수 — **참고값** |
+| 구독자 대비 | 조회수 ÷ 구독자수 — **참고값** (원래의 떡상지수. 카드·정렬에 노출, 주지표 아님) |
 
 구독자수를 주 분모로 쓰지 않는 이유: 채널이 숨기면 값이 오지 않고, 1,000명 초과 시
 유효숫자 3자리로 반올림된다(123,456 → 123,000).
@@ -108,13 +108,16 @@ src/app/api/
   analyze/route.ts         GET 상태 / POST 앱 내 LLM 분석 (키 없으면 503, 레이트리밋)
 src/app/utils/
   metrics.ts               파생 지표를 만드는 유일한 곳 (성과배수·일평균 배수·기준선 출처)
-  analysisPrompt.ts        대조군 포함 프롬프트 생성 (시장 분석 / 단건 + 자막)
+  analysisPrompt.ts        관찰(대조 표·채널 평소 제목 대조) → 플레이북 → 시안(원본 5부 구조) 프롬프트
+  playbook.ts              시안용 범용 원칙 목록 (ID·신뢰도·출처 필수, 포맷별 선택). 갱신은 커밋으로
   quota.ts                 할당량 산수 (검색 버킷 100회 / 공용 10,000)
   helpers.ts               포맷터 + 강조 컷오프(outperformCutoff: 상위 20% AND 5배)
   videoUtils.ts            길이 파싱, VideoType(shorts/long/live) 판별, 필터
   contactSheet.ts          썸네일 격자 합성(canvas) + 클립보드 이미지/다운로드 폴백
   llmClient.ts             /api/analyze 호출
   youtubeApi.ts            /api/search 호출 + 타입 재수출
+  history.ts               브라우저 localStorage 보관함: 검색 이력(원본만) + 출력(프롬프트·LLM 결과)
+src/app/history/page.tsx   보관함 화면 (이력 열기 = /?h=<id>, 할당량 0)
 src/app/components/
   VideoCard                카드(성과배수·일평균 배수·LIVE 배지·자막 토글·AI분석·앱 내 분석)
   SearchDepthPicker        50/100/200 + 검색 버킷 소비 표시
@@ -124,7 +127,16 @@ src/app/components/
 scripts/
   measure.ts               실측 1차: 분포·비율·할당량   (npm run measure -- "키워드")
   measure-isolate.ts       실측 2차: 포맷/나이 효과 분리, 검색 페이지 반환 수
+  scenario.ts              키워드 1개의 절차·할당량·지표·프롬프트를 단계별로 출력 (원본은 measure-out/에 캐시)
 ```
+
+**저장은 브라우저 localStorage뿐이다** (`utils/history.ts`). 서버에 DB·파일·캐시가 없다. 검색 성공
+시 원본 `VideoData`만 자동 저장하고 URL을 `/?h=<id>`로 바꿔 새로고침·뒤로가기가 할당량 없이
+복원된다. 파생 지표는 저장하지 않고 열 때 다시 계산한다(규칙 3). 복사한 프롬프트와 앱 내 LLM
+결과는 출력 보관함에 남는다(같은 본문은 1건). 예산(검색 3.5M자·출력 0.8M자)을 넘으면 오래된 것부터
+버리고, 손상된 항목은 버리되 `console.warn`으로 알린다. 다른 기기·시크릿 창에서는 안 보인다 — UI에 적혀 있다.
+**30일이 지난 이력·출력은 읽을 때 지운다** (`RETENTION_DAYS`) — YouTube API 개발자 정책 III.E.4.b: 소유자
+인가 없이 받은 통계(조회수·구독자수)는 30일 초과 보관 금지. 늘리지 말 것. 정책 조사: [docs/RESEARCH-없는것.md](docs/RESEARCH-없는것.md).
 
 테스트는 소스 옆에 co-locate (`foo.ts` ↔ `foo.test.ts`).
 
@@ -141,6 +153,18 @@ scripts/
   상위를 독식한다(실측).
 - 프롬프트는 **지어내기를 허가하지 않는다.** "부족하면 가정하고 진행"이나
   "내부 사고는 숨기고 최종안만" 같은 지시를 다시 넣지 말 것. 회귀 테스트가 막고 있다.
+- **시안(제목·썸네일·구조)은 만들되, 모든 문장에 `[행 n]` / `[원칙 ID]` / `[가정]` 중 하나를
+  달게 한다.** 데이터(`[행]`)가 얇은 자리는 앱이 든 플레이북(`utils/playbook.ts`)의 원칙으로
+  메우고, 그것도 없으면 `[가정]`으로 드러낸다. 원칙과 데이터가 충돌하면 데이터 우선.
+  플레이북에 출처·신뢰도 없는 항목이나 "n배 CTR" 같은 검증 불가 수치를 넣지 말 것(테스트가 막음).
+- **시안의 품질은 앱도 LLM도 판정하지 못한다.** 판정은 YouTube Studio Test & Compare
+  (롱폼, 제목·썸네일 3종, 승자 = 노출당 시청시간)뿐이다. 그래서 출력이 "3안 세트"다.
+- **대조군은 `format-median` 기준선 영상을 먼저 쓴다.** `lifetime-mean`(Shorts 섞인 채널 평균)은
+  모자랄 때만. 실측에서 305만 구독 채널 롱폼이 0.08배로 하위군에 들어가 대조를 오염시켰다.
+- `videos.list`는 `topicDetails,paidProductPlacementDetails`까지 요청한다(0 unit): 유료 PPL 여부·주제 분류(Wikipedia
+  제목)·음성 언어를 표·요약에 싣는다. 2026-09-09 이전 보관분에는 없어 optional이며 표에는 `—`로 나온다.
+- `RecentUpload.title`은 이미 부르는 `videos.list?part=snippet`에서 오므로 할당량 0으로 저장한다.
+  상위 영상 vs 그 채널 평소 제목 대조가 가장 통제된 신호다. 2026-09-09 이전 보관분에는 없다.
 
 ## 배포
 

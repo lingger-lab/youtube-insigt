@@ -11,7 +11,8 @@ import SearchDepthPicker from './components/SearchDepthPicker';
 import CopyButton from './components/CopyButton';
 import ThumbnailSheetButton from './components/ThumbnailSheetButton';
 import AnalyzeButton from './components/AnalyzeButton';
-import { getLlmStatus, type LlmStatus } from './utils/llmClient';
+import { getLlmStatus, type LlmStatus, type AnalysisResult } from './utils/llmClient';
+import { browserHistoryStore, type HistoryStore, type NewOutputRecord } from './utils/history';
 import Header from './components/Header';
 import Sidebar, { MobileNavDrawer, type VideoFilter } from './components/Sidebar';
 import SearchInput from './components/SearchInput';
@@ -61,6 +62,55 @@ export default function Home() {
     };
   }, []);
 
+  // 브라우저 로컬 보관함. SSR·차단 환경이면 null이고 저장만 빠진다.
+  const [history, setHistory] = useState<HistoryStore | null>(null);
+  // 저장된 검색을 열어 보고 있는가. null이면 방금 API로 받은 결과.
+  const [restoredFrom, setRestoredFrom] = useState<{ id: string; savedAt: string } | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  // 시안용 "내 주제/채널". 브라우저에 남겨 다음 검색에서도 다시 안 치게 한다.
+  const [topic, setTopic] = useState('');
+  const handleTopicChange = (value: string) => {
+    setTopic(value);
+    history?.setTopic(value);
+  };
+
+  const keepOutput = (output: NewOutputRecord) => {
+    if (!history) return;
+    try {
+      history.saveOutput(output);
+      setHistoryError(null);
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : '보관함 저장에 실패했습니다.');
+    }
+  };
+
+  /**
+   * URL의 ?h=<id>로 저장된 검색을 복원한다. 할당량을 쓰지 않는다.
+   * 새로고침 한 번에 검색(할당량 1회)이 날아가던 문제의 답이다.
+   */
+  useEffect(() => {
+    const store = browserHistoryStore();
+    setHistory(store);
+    if (!store) return;
+    setTopic(store.getTopic());
+    const id = new URLSearchParams(window.location.search).get('h');
+    if (!id) return;
+    const record = store.getSearch(id);
+    if (!record) {
+      setHistoryError('저장된 검색을 찾지 못했습니다. 이 브라우저에서 지워졌거나 다른 기기의 링크입니다.');
+      window.history.replaceState(null, '', '/');
+      return;
+    }
+    setSearchTerm(record.term);
+    setQueryInput(record.term);
+    setSearchDepth(record.depth);
+    setFilters(record.filters);
+    setVideos(record.videos);
+    setUsage(record.usage);
+    setHasSearched(true);
+    setRestoredFrom({ id: record.id, savedAt: record.savedAt });
+  }, []);
+
   // 파생 지표는 저장하지 않고 여기 한 곳에서만 만든다.
   // 원본과 파생값을 둘 다 들고 있으면 언젠가 어긋난다.
   const videosWithMetrics = useMemo(() => withMetrics(videos), [videos]);
@@ -94,11 +144,22 @@ export default function Home() {
     setHasSearched(true);
     setVideos([]); // 새로운 검색 시작 시 이전 결과 완전히 초기화
     setUsage(null);
+    setRestoredFrom(null);
 
     try {
       const { videos: results, usage: spent } = await searchYouTube(term, filters, searchDepth);
       setVideos(results);
       setUsage(spent);
+      // 성공한 검색은 자동으로 남긴다. URL에 id를 실어 새로고침·뒤로가기가 복원되게 한다.
+      if (history) {
+        try {
+          const saved = history.saveSearch({ term, depth: searchDepth, filters, usage: spent, videos: results });
+          window.history.replaceState(null, '', `/?h=${encodeURIComponent(saved.id)}`);
+          setHistoryError(null);
+        } catch (e) {
+          setHistoryError(e instanceof Error ? e.message : '검색 이력 저장에 실패했습니다.');
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '검색에 실패했습니다.');
       setVideos([]);
@@ -134,6 +195,9 @@ export default function Home() {
     setVideos([]);
     setError(null);
     setUsage(null);
+    setRestoredFrom(null);
+    setHistoryError(null);
+    window.history.replaceState(null, '', '/');
     setVideoFilter('home');
     setSortBy('performanceMultiple');
     setSortOrder('desc');
@@ -239,6 +303,26 @@ export default function Home() {
               <strong>오류:</strong> {error}
             </div>
           )}
+          {historyError && (
+            <div role="alert" className="bg-amber-900/60 border border-amber-700 text-amber-100 px-4 py-3 rounded-lg mb-6 text-sm">
+              보관함: {historyError}
+            </div>
+          )}
+          {restoredFrom && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-gray-800 border border-gray-700 text-gray-300 px-4 py-2 rounded-lg mb-6 text-sm">
+              <span>
+                저장된 결과 ({new Date(restoredFrom.savedAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })})
+                — 할당량 소비 없음. 지표는 지금 정의로 다시 계산했습니다.
+              </span>
+              <button
+                type="button"
+                onClick={() => handleSearch(searchTerm)}
+                className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+              >
+                다시 검색 (검색 1회)
+              </button>
+            </div>
+          )}
 
           {/* Results Section */}
           {sortedVideos.length > 0 && (
@@ -270,9 +354,32 @@ export default function Home() {
                       LLM에 붙여넣을 프롬프트를 만듭니다.
                     </p>
                   </div>
+                  {/* 시안 절의 "내 주제". 비우면 프롬프트가 입력 칸을 남기고 검색어와 같은 주제로 가정하게 한다. */}
+                  <div className="w-full">
+                    <label htmlFor="topic-input" className="block text-xs text-gray-400 mb-1">
+                      내 주제/채널 (시안용, 선택) — 프롬프트 끝의 제목·썸네일·구조 시안이 이 주제로 나옵니다
+                    </label>
+                    <input
+                      id="topic-input"
+                      type="text"
+                      value={topic}
+                      onChange={(e) => handleTopicChange(e.target.value)}
+                      placeholder={`비우면 "${searchTerm}"와 같은 주제로 가정`}
+                      maxLength={120}
+                      className="w-full max-w-xl px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <CopyButton
-                      getText={() => buildMarketAnalysisPrompt(searchTerm, cohort)}
+                      getText={() => buildMarketAnalysisPrompt(searchTerm, cohort, { topic })}
+                      onCopied={() =>
+                        keepOutput({
+                          kind: 'market-prompt',
+                          term: searchTerm,
+                          title: `"${searchTerm}" 시장 분석`,
+                          text: buildMarketAnalysisPrompt(searchTerm, cohort, { topic }),
+                        })
+                      }
                       label="시장 분석 복사"
                       variant="primary"
                       title="상위군·하위군 비교 프롬프트를 복사합니다"
@@ -290,9 +397,23 @@ export default function Home() {
                   <AnalyzeButton
                     enabled={llm.enabled}
                     model={llm.model}
-                    getPrompt={() => buildMarketAnalysisPrompt(searchTerm, cohort)}
+                    getPrompt={() => buildMarketAnalysisPrompt(searchTerm, cohort, { topic })}
                     thumbnailVideoIds={[...cohort.top, ...cohort.bottom].map((v) => v.id)}
                     label="앱에서 시장 분석"
+                    onResult={(result: AnalysisResult) =>
+                      keepOutput({
+                        kind: 'market-analysis',
+                        term: searchTerm,
+                        title: `"${searchTerm}" 시장 분석 결과`,
+                        text: result.text,
+                        llm: {
+                          model: result.model,
+                          inputTokens: result.usage.inputTokens,
+                          outputTokens: result.usage.outputTokens,
+                          estimatedCostUsd: result.estimatedCostUsd,
+                        },
+                      })
+                    }
                   />
                 </div>
               ) : (
@@ -328,6 +449,8 @@ export default function Home() {
                     searchTerm={searchTerm}
                     llm={llm}
                     highlightCutoff={highlightCutoff}
+                    onOutput={history ? keepOutput : undefined}
+                    topic={topic}
                   />
                 ))}
               </div>

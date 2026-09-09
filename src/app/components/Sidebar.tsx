@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import Link from 'next/link';
 
 export type VideoFilter = 'home' | 'shorts' | 'long';
 
@@ -71,6 +72,24 @@ function NavList({ activeFilter, onFilterChange, iconOnly = false }: NavListProp
           </button>
         );
       })}
+      {/* 필터가 아니라 페이지 이동. 검색 이력과 복사·분석한 출력이 여기 남는다. */}
+      <Link
+        href="/history"
+        title={iconOnly ? '보관함' : undefined}
+        className="w-full flex items-center gap-4 px-4 py-3 mt-2 border-t border-gray-800 text-gray-300 transition-colors hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-500"
+      >
+        <span className="shrink-0">
+          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z" />
+          </svg>
+        </span>
+        {!iconOnly && (
+          <span className="text-sm font-medium">
+            보관함
+            <span className="sr-only"> — 검색 이력과 저장된 프롬프트·분석 결과</span>
+          </span>
+        )}
+      </Link>
     </nav>
   );
 }

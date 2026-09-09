@@ -22,7 +22,7 @@ function makeChannel(overrides: Partial<ChannelSnapshot> = {}): ChannelSnapshot 
 
 /** 같은 채널의 최근 업로드 픽스처. duration으로 포맷을 가른다. */
 function upload(id: string, viewCount: number, duration: string, liveStatus: RecentUpload['liveStatus'] = 'none'): RecentUpload {
-  return { id, viewCount, duration, publishedAt: new Date(NOW - 30 * DAY_MS).toISOString(), liveStatus };
+  return { id, title: `업로드 ${id}`, viewCount, duration, publishedAt: new Date(NOW - 30 * DAY_MS).toISOString(), liveStatus };
 }
 
 function makeVideo(overrides: Partial<VideoData> = {}): VideoData {
@@ -371,6 +371,14 @@ describe('compareByMetric', () => {
     ],
     NOW,
   );
+
+  test('구독자 대비(subscriberRatio)로도 정렬되고, 비공개 채널은 뒤로 간다', () => {
+    // 입력을 뒤섞어 둔다 — 키가 구현되지 않아 정렬이 no-op이면 실패해야 한다.
+    const shuffled = [withHidden[1], withHidden[2], withHidden[0]];
+    const sorted = shuffled.sort((a, b) => compareByMetric(a, b, 'subscriberRatio', 'desc'));
+    assert.deepEqual(sorted.map((v) => v.id), ['high', 'low', 'unknown']);
+    assert.equal(sorted[0].metrics.subscriberRatio, 9);
+  });
 
   test('내림차순 정렬 시 측정 불가 항목은 맨 뒤로 간다', () => {
     const sorted = [...withHidden].sort((a, b) => compareByMetric(a, b, 'subscriberCount', 'desc'));
