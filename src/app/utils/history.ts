@@ -87,6 +87,12 @@ export const TOPIC_KEY = 'youtube-insigt:topic:v1';
  */
 export const SEARCH_BUDGET_CHARS = 3_500_000;
 export const OUTPUT_BUDGET_CHARS = 800_000;
+/**
+ * YouTube API 개발자 정책 III.E.4.b — 채널 소유자 인가 없이 받은 통계(조회수·구독자수)는
+ * 30일을 넘겨 저장할 수 없다. 검색 이력은 통계 그 자체이고, 출력(프롬프트·LLM 결과)도 통계를
+ * 인용하므로 같이 만료한다. 읽을 때 걸러내고 저장소에서도 지운다.
+ */
+export const RETENTION_DAYS = 30;
 
 interface StoreOptions {
   now?: () => Date;
@@ -141,7 +147,7 @@ export function createHistoryStore(storage: StorageLike, options: StoreOptions =
    * 저장된 배열을 읽는다. JSON이 깨졌거나 모양이 다르면 그 항목(또는 전체)을 버리고
    * 알린다 — 이력 하나 때문에 앱이 죽는 것보다 낫지만, 버렸다는 사실은 숨기지 않는다.
    */
-  function read<T>(key: string, guard: (value: unknown) => value is T): T[] {
+  function read<T extends { savedAt: string }>(key: string, guard: (value: unknown) => value is T): T[] {
     const raw = storage.getItem(key);
     if (raw === null) return [];
     let parsed: unknown;
@@ -161,7 +167,16 @@ export function createHistoryStore(storage: StorageLike, options: StoreOptions =
     if (valid.length !== parsed.length) {
       warn(`${key}: 손상된 항목 ${parsed.length - valid.length}건을 버렸습니다`);
     }
-    return valid;
+    const cutoff = now().getTime() - RETENTION_DAYS * 86_400_000;
+    const alive = valid.filter((record) => {
+      const t = Date.parse(record.savedAt);
+      return Number.isFinite(t) && t >= cutoff;
+    });
+    if (alive.length !== valid.length) {
+      // 만료분은 저장소에서도 지운다 — 정책상 "저장하지 않는 것"이 요건이다.
+      storage.setItem(key, JSON.stringify(alive));
+    }
+    return alive;
   }
 
   /**

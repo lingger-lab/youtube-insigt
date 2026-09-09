@@ -81,6 +81,42 @@ function clock() {
   return () => new Date(Date.UTC(2026, 8, 8, 0, 0, t++));
 }
 
+// YouTube API 개발자 정책 III.E.4.b: 채널 소유자 인가 없이 받은 통계(조회수·구독자수)는 30일 넘게 저장 금지.
+describe('30일 만료 (YouTube 정책 III.E.4.b)', () => {
+  const DAY = 86_400_000;
+  const base = Date.UTC(2026, 8, 9);
+
+  test('30일이 지난 검색 이력은 읽을 때 지워지고, 지우지 않은 것만 남는다', () => {
+    const storage = makeStorage();
+    let t = base;
+    const store = createHistoryStore(storage, { now: () => new Date(t) });
+    store.saveSearch(search('old'));
+    t = base + 5 * DAY;
+    store.saveSearch(search('fresh'));
+
+    t = base + 31 * DAY; // old는 31일, fresh는 26일 경과
+    assert.deepEqual(store.listSearches().map((r) => r.term), ['fresh']);
+    assert.ok(!storage.map.get(SEARCHES_KEY)!.includes('"old"'), '저장소에서도 지워져야 한다');
+    assert.equal(store.getSearch(store.listSearches()[0].id)?.term, 'fresh');
+  });
+
+  test('출력(프롬프트·LLM 결과)도 통계를 인용하므로 같이 만료된다', () => {
+    let t = base;
+    const store = createHistoryStore(makeStorage(), { now: () => new Date(t) });
+    store.saveOutput(output({ text: 'old' }));
+    t = base + 31 * DAY;
+    assert.deepEqual(store.listOutputs(), []);
+  });
+
+  test('정확히 30일은 아직 산다 (경계)', () => {
+    let t = base;
+    const store = createHistoryStore(makeStorage(), { now: () => new Date(t) });
+    store.saveSearch(search('edge'));
+    t = base + 30 * DAY;
+    assert.equal(store.listSearches().length, 1);
+  });
+});
+
 describe('검색 이력', () => {
   test('저장 후 최신 순으로 나열되고 id로 다시 꺼낼 수 있다', () => {
     const store = createHistoryStore(makeStorage(), { now: clock() });

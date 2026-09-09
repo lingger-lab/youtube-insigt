@@ -85,6 +85,7 @@ export default function HistoryPage() {
         <p className="text-sm text-gray-400">
           이 브라우저의 로컬 저장소(localStorage)에만 있습니다. 서버에는 저장되지 않으며, 다른 기기·브라우저·
           시크릿 창에서는 보이지 않습니다. 저장된 검색을 열면 할당량을 쓰지 않습니다.
+          검색 이력과 출력은 <strong>30일이 지나면 자동으로 지워집니다</strong> (YouTube API 정책: 소유자 인가 없는 통계는 30일 초과 보관 금지).
         </p>
 
         {store === null && (
