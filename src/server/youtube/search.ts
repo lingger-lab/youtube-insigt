@@ -226,6 +226,7 @@ async function fetchRecentUploads(
     );
     return (detailed.items ?? []).map((item) => ({
       id: item.id,
+      title: item.snippet?.title ?? '',
       viewCount: toCount(item.statistics?.viewCount) ?? 0,
       duration: item.contentDetails?.duration ?? 'PT0S',
       publishedAt: item.snippet?.publishedAt ?? '',

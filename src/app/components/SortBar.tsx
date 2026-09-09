@@ -17,6 +17,7 @@ const SORT_OPTIONS: { value: SortKey; label: string; hint: string }[] = [
   { value: 'viewsPerDay', label: '일평균 조회수', hint: '업로드 후 하루당 조회수 (신작에 유리)' },
   { value: 'likeRate', label: '좋아요율', hint: '좋아요 ÷ 조회수' },
   { value: 'subscriberCount', label: '구독자수', hint: '채널 구독자수 (비공개 채널은 뒤로)' },
+  { value: 'subscriberRatio', label: '구독자 대비', hint: '조회수 ÷ 구독자수 — 참고값 (비공개·1,000명 초과 반올림 때문에 주지표가 아님)' },
   { value: 'publishedAt', label: '최신순', hint: '업로드 시각' },
 ];
 

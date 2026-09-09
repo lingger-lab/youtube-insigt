@@ -82,7 +82,7 @@ function installFetch(options: {
             const i = Number(id.split('x')[1]);
             return {
               id,
-              snippet: { publishedAt: '2026-07-01T00:00:00Z' },
+              snippet: { publishedAt: '2026-07-01T00:00:00Z', title: `업로드 ${id}` },
               statistics: { viewCount: String(i % 2 === 0 ? 5_000 + i : 50_000 + i * 100) },
               contentDetails: { duration: i % 2 === 0 ? 'PT1M' : 'PT10M' },
             };
@@ -322,6 +322,8 @@ describe('searchYouTube — 채널 최근 업로드', () => {
     assert.equal(uploads[1].duration, 'PT10M');
     assert.equal(uploads[1].viewCount, 50_100);
     assert.equal(uploads[0].duration, 'PT1M');
+    // 제목은 이미 부르는 videos.list?part=snippet에 오므로 추가 할당량 없이 저장한다 (채널 내부 대조용)
+    assert.equal(uploads[1].title, `업로드 ${uploads[1].id}`);
     assert.equal(videos[0].channel.uploadsPlaylistId, 'UUc0');
   });
 

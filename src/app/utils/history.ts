@@ -63,6 +63,9 @@ export interface HistoryStore {
   /** 같은 종류·검색어·영상·본문이 이미 있으면 새로 만들지 않고 그것을 돌려준다. */
   saveOutput(input: NewOutputRecord): OutputRecord;
   deleteOutput(id: string): void;
+  /** 시안용 "내 주제/채널". 프롬프트에 실린다. 없으면 빈 문자열. */
+  getTopic(): string;
+  setTopic(topic: string): void;
   clearAll(): void;
 }
 
@@ -75,6 +78,7 @@ export class HistoryError extends Error {
 
 export const SEARCHES_KEY = 'youtube-insigt:searches:v1';
 export const OUTPUTS_KEY = 'youtube-insigt:outputs:v1';
+export const TOPIC_KEY = 'youtube-insigt:topic:v1';
 
 /**
  * 문자 수 예산. localStorage는 오리진당 약 5M UTF-16 코드 유닛(Chrome)이 상한이다.
@@ -232,9 +236,20 @@ export function createHistoryStore(storage: StorageLike, options: StoreOptions =
       write(OUTPUTS_KEY, remaining, outputBudget);
     },
 
+    getTopic() {
+      return (storage.getItem(TOPIC_KEY) ?? '').trim();
+    },
+
+    setTopic(topic) {
+      const trimmed = topic.trim();
+      if (trimmed) storage.setItem(TOPIC_KEY, trimmed);
+      else storage.removeItem(TOPIC_KEY);
+    },
+
     clearAll() {
       storage.removeItem(SEARCHES_KEY);
       storage.removeItem(OUTPUTS_KEY);
+      storage.removeItem(TOPIC_KEY);
     },
   };
 }

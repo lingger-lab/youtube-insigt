@@ -67,6 +67,12 @@ export default function Home() {
   // 저장된 검색을 열어 보고 있는가. null이면 방금 API로 받은 결과.
   const [restoredFrom, setRestoredFrom] = useState<{ id: string; savedAt: string } | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  // 시안용 "내 주제/채널". 브라우저에 남겨 다음 검색에서도 다시 안 치게 한다.
+  const [topic, setTopic] = useState('');
+  const handleTopicChange = (value: string) => {
+    setTopic(value);
+    history?.setTopic(value);
+  };
 
   const keepOutput = (output: NewOutputRecord) => {
     if (!history) return;
@@ -86,6 +92,7 @@ export default function Home() {
     const store = browserHistoryStore();
     setHistory(store);
     if (!store) return;
+    setTopic(store.getTopic());
     const id = new URLSearchParams(window.location.search).get('h');
     if (!id) return;
     const record = store.getSearch(id);
@@ -347,15 +354,30 @@ export default function Home() {
                       LLM에 붙여넣을 프롬프트를 만듭니다.
                     </p>
                   </div>
+                  {/* 시안 절의 "내 주제". 비우면 프롬프트가 입력 칸을 남기고 검색어와 같은 주제로 가정하게 한다. */}
+                  <div className="w-full">
+                    <label htmlFor="topic-input" className="block text-xs text-gray-400 mb-1">
+                      내 주제/채널 (시안용, 선택) — 프롬프트 끝의 제목·썸네일·구조 시안이 이 주제로 나옵니다
+                    </label>
+                    <input
+                      id="topic-input"
+                      type="text"
+                      value={topic}
+                      onChange={(e) => handleTopicChange(e.target.value)}
+                      placeholder={`비우면 "${searchTerm}"와 같은 주제로 가정`}
+                      maxLength={120}
+                      className="w-full max-w-xl px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <CopyButton
-                      getText={() => buildMarketAnalysisPrompt(searchTerm, cohort)}
+                      getText={() => buildMarketAnalysisPrompt(searchTerm, cohort, { topic })}
                       onCopied={() =>
                         keepOutput({
                           kind: 'market-prompt',
                           term: searchTerm,
                           title: `"${searchTerm}" 시장 분석`,
-                          text: buildMarketAnalysisPrompt(searchTerm, cohort),
+                          text: buildMarketAnalysisPrompt(searchTerm, cohort, { topic }),
                         })
                       }
                       label="시장 분석 복사"
@@ -375,7 +397,7 @@ export default function Home() {
                   <AnalyzeButton
                     enabled={llm.enabled}
                     model={llm.model}
-                    getPrompt={() => buildMarketAnalysisPrompt(searchTerm, cohort)}
+                    getPrompt={() => buildMarketAnalysisPrompt(searchTerm, cohort, { topic })}
                     thumbnailVideoIds={[...cohort.top, ...cohort.bottom].map((v) => v.id)}
                     label="앱에서 시장 분석"
                     onResult={(result: AnalysisResult) =>
@@ -428,6 +450,7 @@ export default function Home() {
                     llm={llm}
                     highlightCutoff={highlightCutoff}
                     onOutput={history ? keepOutput : undefined}
+                    topic={topic}
                   />
                 ))}
               </div>

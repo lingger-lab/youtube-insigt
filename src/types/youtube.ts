@@ -31,6 +31,11 @@ export type LiveStatus = 'none' | 'live' | 'upcoming';
 /** 채널의 최근 업로드 한 편. 기준선 계산용 최소 사실만. */
 export interface RecentUpload {
   id: string;
+  /**
+   * 제목. 상위 영상과 "그 채널 평소 제목"을 대조하기 위한 것 (같은 videos.list 응답이라 할당량 0).
+   * 2026-09-09 이전에 브라우저 보관함에 저장된 이력에는 없다 — optional인 이유.
+   */
+  title?: string;
   viewCount: number;
   /** ISO 8601 (PT#M#S). 포맷(Shorts/롱폼/라이브) 판별은 videoUtils에서 한다. */
   duration: string;

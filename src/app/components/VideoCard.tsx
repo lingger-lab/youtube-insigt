@@ -31,9 +31,11 @@ interface VideoCardProps {
   highlightCutoff: number;
   /** 복사한 프롬프트·받은 분석 결과를 보관함에 남긴다. 저장소가 없으면 undefined. */
   onOutput?: (output: NewOutputRecord) => void;
+  /** 시안용 "내 주제/채널". 비어 있으면 프롬프트가 입력 칸을 남긴다. */
+  topic?: string;
 }
 
-export default function VideoCard({ video, displayMode, cohort, searchTerm, llm, highlightCutoff, onOutput }: VideoCardProps) {
+export default function VideoCard({ video, displayMode, cohort, searchTerm, llm, highlightCutoff, onOutput, topic }: VideoCardProps) {
   const { metrics } = video;
   const outperforming = isOutperforming(metrics.performanceMultiple, highlightCutoff);
   const format = getVideoType(video.duration, video.liveStatus);
@@ -47,7 +49,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
   const [transcript, setTranscript] = useState('');
   const [showTranscript, setShowTranscript] = useState(false);
 
-  const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm, { transcript });
+  const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm, { transcript, topic });
   // 복사·분석 두 경로가 같은 프롬프트를 쓰므로 보관도 같은 자리에서 한다.
   const keepPrompt = () =>
     onOutput?.({ kind: 'video-prompt', term: searchTerm, videoId: video.id, title: video.title, text: analysisPrompt() });
@@ -180,6 +182,9 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
               </span>
             )}
             <span title="좋아요 ÷ 조회수">좋아요율 {formatPercent(metrics.likeRate)}</span>
+            <span title="조회수 ÷ 구독자수 — 참고값. 구독자를 숨긴 채널은 측정불가, 1,000명 초과는 유효숫자 3자리 반올림">
+              구독자 대비 {formatMultiple(metrics.subscriberRatio)}
+            </span>
             {video.hasCaption && <span className="text-gray-500">자막 있음</span>}
           </div>
 
@@ -267,6 +272,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
 
         <div className="flex justify-between text-xs text-gray-400 mb-2">
           <span>구독자 {formatSubscriberCount(video.channel.subscriberCount)}</span>
+          <span title="조회수 ÷ 구독자수 — 참고값">구독자 대비 {formatMultiple(metrics.subscriberRatio)}</span>
           <span title="좋아요 ÷ 조회수">좋아요율 {formatPercent(metrics.likeRate)}</span>
         </div>
 

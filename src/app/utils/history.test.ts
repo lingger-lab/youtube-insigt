@@ -156,6 +156,25 @@ describe('검색 이력', () => {
   });
 });
 
+describe('내 주제', () => {
+  test('저장·조회, 없으면 빈 문자열, 공백은 지운다', () => {
+    const store = createHistoryStore(makeStorage());
+    assert.equal(store.getTopic(), '');
+    store.setTopic('  홈베이킹 입문  ');
+    assert.equal(store.getTopic(), '홈베이킹 입문');
+    store.setTopic('   ');
+    assert.equal(store.getTopic(), '');
+  });
+
+  test('clearAll이 주제도 지운다', () => {
+    const storage = makeStorage();
+    const store = createHistoryStore(storage);
+    store.setTopic('x');
+    store.clearAll();
+    assert.equal(store.getTopic(), '');
+  });
+});
+
 describe('출력 보관함', () => {
   test('저장·나열·삭제', () => {
     const store = createHistoryStore(makeStorage(), { now: clock() });

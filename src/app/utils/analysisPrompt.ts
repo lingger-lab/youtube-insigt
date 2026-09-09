@@ -1,7 +1,8 @@
 import type { VideoWithMetrics } from '../../types/youtube.ts';
 // 런타임 import에는 .ts 확장자가 필요하다 (node --test가 이 모듈을 직접 실행한다).
 import { formatViewCount, formatPercent, formatMultiple, formatSubscriberCount } from './helpers.ts';
-import { formatDuration } from './videoUtils.ts';
+import { formatDuration, getVideoType, type VideoType } from './videoUtils.ts';
+import { selectPrinciples, renderPlaybook } from './playbook.ts';
 
 /**
  * LLM에 붙여넣을 분석 프롬프트를 만든다.
@@ -44,10 +45,20 @@ export function selectCohort(videos: VideoWithMetrics[], size: number = COHORT_S
   const half = Math.min(size, Math.floor(measurable.length / 2));
   if (half === 0) return { top: [], bottom: [] };
 
-  return {
-    top: measurable.slice(0, half),
-    bottom: measurable.slice(-half),
-  };
+  // 기준선이 같은 포맷 중앙값인 영상을 먼저 쓴다. 채널 전체 평균(lifetime-mean)은
+  // Shorts가 섞인 대형 채널의 롱폼을 0.1배로 만드는 식으로 배수 자체가 다른 뜻이라,
+  // 그런 영상이 하위군에 들어가면 "무엇이 달랐나"의 답이 기준선 차이로 오염된다.
+  // 실측(2026-09-08): 하위군 10건 중 3건이 이 경우였다. 모자랄 때만 채운다.
+  const reliable = measurable.filter((v) => v.metrics.baselineSource === 'format-median');
+  const fallback = measurable.filter((v) => v.metrics.baselineSource !== 'format-median');
+
+  // 두 목록 모두 내림차순이다. 상위군은 앞에서, 하위군은 남은 것의 뒤에서(=오름차순 앞에서) 뽑는다.
+  const top = [...reliable, ...fallback].slice(0, half);
+  const taken = new Set(top.map((v) => v.id));
+  const remaining = (list: VideoWithMetrics[]) => list.filter((v) => !taken.has(v.id)).reverse();
+  const bottom = [...remaining(reliable), ...remaining(fallback)].slice(0, half).reverse();
+
+  return { top, bottom };
 }
 
 function describeBaseline(video: VideoWithMetrics): string {
@@ -147,13 +158,117 @@ function thumbnailSection(videos: VideoWithMetrics[], label: string, startIndex:
   return `\n## ${label} 썸네일 링크 (시트를 못 붙였을 때 직접 열어 첨부)\n${links}\n`;
 }
 
+/** 시안 대상 포맷. 라이브는 시안 대상이 아니다. 섞여 있으면 null(원칙 전부 싣고 표기). */
+function proposalFormat(videos: VideoWithMetrics[]): Exclude<VideoType, 'live'> | null {
+  const kinds = new Set(videos.map((v) => getVideoType(v.duration, v.liveStatus)).filter((t) => t !== 'live'));
+  if (kinds.size === 1) return [...kinds][0] as Exclude<VideoType, 'live'>;
+  return null;
+}
+
+/**
+ * 상위 영상 vs 그 채널의 평소 제목. 채널·주제·구독자가 같으니 가장 통제된 대조다.
+ * 같은 포맷 동료를 조회수순으로 세워 중앙값 주변 3편을 고른다 (평소 = 중간쯤 한 영상).
+ * 제목은 이미 부르는 videos.list 응답에 있어 할당량 0. 2026-09-09 이전 보관분에는 없다.
+ */
+function channelContrastSection(top: VideoWithMetrics[], startIndex: number): string {
+  const rows = top
+    .map((v, i) => {
+      const uploads = v.channel.recentUploads ?? [];
+      const format = getVideoType(v.duration, v.liveStatus);
+      const peers = uploads
+        .filter((u) => u.id !== v.id && u.title && getVideoType(u.duration, u.liveStatus) === format)
+        .sort((a, b) => a.viewCount - b.viewCount);
+      if (peers.length === 0) return null;
+      const mid = Math.floor(peers.length / 2);
+      const around = peers.slice(Math.max(0, mid - 1), mid + 2).map((u) => cell(u.title ?? ''));
+      return `| ${startIndex + i} | ${cell(v.title)} | ${around.join(' / ')} |`;
+    })
+    .filter((row): row is string => row !== null);
+
+  if (rows.length === 0) {
+    return `## 채널 평소 제목 대조
+이 이력에는 채널 평소 제목이 저장되지 않았습니다 (2026-09-09 이전 저장분). 다시 검색하면 포함됩니다.`;
+  }
+  return `## 채널 평소 제목 대조 (상위 영상 vs 같은 채널·같은 포맷의 중앙값 근처 3편)
+같은 채널이라 주제·구독자·스타일이 통제된다. **터진 영상의 제목이 그 채널 평소와 무엇이 달랐는지**가 여기서 보인다.
+| # | 상위 영상 제목 | 그 채널 평소 제목 (중앙값 근처 3편) |
+|---|---|---|
+${rows.join('\n')}`;
+}
+
+export interface ProposalOptions {
+  /** 사용자가 적은 "내 주제/채널". 없으면 입력 칸을 남기고 검색어와 같은 주제로 가정하게 한다. */
+  topic?: string;
+}
+
+/**
+ * 시안 절 — 원본 기획(2025-12)의 5부 구조를 되살리되, 모든 문장에 근거 표기를 강제한다.
+ * 관찰(표) → 원칙(플레이북) → 시안 순서여야 "[행 n]"과 "[원칙 ID]" 인용이 성립한다.
+ */
+function proposalSection(searchTerm: string, format: Exclude<VideoType, 'live'> | null, options: ProposalOptions): string {
+  const topic = (options.topic ?? '').trim();
+  const topicBlock = topic
+    ? `**내 주제/채널**: ${topic}`
+    : `**👇 내 주제/채널을 여기에 입력하세요.** 비워 두면 검색어 **"${searchTerm}"**와 같은 주제로 가정하고, 그 가정을 시안 첫 줄에 적으세요.
+\`\`\`
+[여기에 내 주제 입력]
+\`\`\``;
+  const formatLabel = format === 'shorts' ? 'Shorts' : format === 'long' ? '롱폼' : '혼합 (상위군에 Shorts와 롱폼이 섞여 있음 — 시안마다 포맷을 명시)';
+  const hookPrinciple = format === 'shorts' ? 'K1' : format === 'long' ? 'K2' : 'K1/K2';
+  const structurePrinciple = format === 'shorts' ? 'S2' : format === 'long' ? 'S1' : 'S1/S2';
+
+  return `${renderPlaybook(selectPrinciples(format))}
+
+# 시안 — 위 관찰과 일반 원칙에 근거해서만
+${topicBlock}
+
+시안 대상 포맷: **${formatLabel}**
+
+### A. 클릭 트리거 (상위군에서 실제로 작동한 것)
+- [원칙 G1]의 후보 중 상위군에서 세어진 트리거 TOP 3~5. 각 트리거마다: 근거 [행 n] (상위군 n건 / 하위군 n건) / 내 주제 적용 카피 1줄 / 기대 효과(CTR·시청지속·완시율 중 하나).
+- 채널 평소 제목 대조 표가 있으면, 터진 영상이 그 채널 평소와 **무엇을 바꿨는지**를 먼저 적는다.
+
+### B. 제목·썸네일 세트 5개 ([원칙 G2] 유형: 직설형 · 호기심형 · 숫자형 · 반전형 · 권위/사회적증거형)
+각 세트에:
+- 제목 (글자 수 표기 [원칙 T2·T4]) — 상위군 제목을 **베끼지 말고** 약속의 형태만 가져온다
+- 썸네일 텍스트 (4단어 이하 [원칙 H1]) — 제목과 중복 금지 [원칙 T5]
+- 썸네일 구성 (피사체 / 앵글 / 대비 / 여백 [원칙 H2·H3]) — 상위군 썸네일 #번호는 **시트가 첨부됐을 때만** 근거로 쓴다. 미첨부면 [원칙]만.
+- 근거: [행 n] 또는 [원칙 ID]
+- 금지 요소 (작은 글자, 저해상도, 본편이 못 지키는 약속 [원칙 T6])
+- 기대 KPI (CTR / 평균 시청시간 / 완시율 중 하나) — 수치 예측은 쓰지 않는다
+
+### C. 구조 설계 (포맷: ${formatLabel})
+- 길이: 상위군 길이 분포에서 [행 n]
+- 훅 3안 → 최적 1안 [원칙 ${hookPrinciple}]. 자막이 없으면 첫 문장은 [가정]으로 표기
+- 타임라인 [원칙 ${structurePrinciple}] — 블록별 **목적과 장치**만. 대사 전문은 쓰지 않는다
+- 이탈 위험 구간 & 회수 장치 표 (구간 / 위험 신호 / 개입) — 시청지속률 데이터가 없으므로 전부 [가정] 또는 [원칙]
+- 톤 & 보이스 3줄, 금지 리스트 3개
+
+### D. 벤치마킹 → 적용 매핑표
+| 원본 요소 [행 n] | 내 영상 적용 | 근거 ([행] / [원칙]) | 기대 KPI |
+|---|---|---|---|
+
+### E. 자기점검과 검증
+- 세트마다: 제목·썸네일의 약속을 본편이 **지킬 수 있는가** Y/N + 이유 [원칙 T6]
+- 서로 다른 유형 3안을 골라 **YouTube Studio Test & Compare** 후보로 표기 [원칙 V1]. 이 앱도 이 답변도 승자를 판정하지 못한다 — 판정은 Test & Compare(롱폼) 또는 수동 비교(Shorts)뿐이다.
+
+### F. 복사용 요약
+- 제목 5개 리스트 / 썸네일 텍스트 5개 리스트 / 1문장 전략 요약(TL;DR)
+
+## 시안 작성 규칙
+- 시안의 **모든 문장**에 [행 n] / [원칙 ID] / [가정] 중 하나를 단다. 셋 다 달 수 없는 문장은 쓰지 않는다.
+- [가정]은 숨기지 않고 그대로 드러낸다. "부족하면 가정하고 진행"이 아니라 **가정임을 표기하고 진행**이다.
+- 원칙과 이 검색어의 데이터가 충돌하면 데이터를 따르고, 충돌을 그대로 적는다.
+- 근거 없는 효과 수치("CTR 30% 상승")는 쓰지 않는다.`;
+}
+
 /**
  * 키워드 시장 분석: 상위군 vs 하위군 비교.
  *
  * 이 도구에서 가장 값이 큰 출력이다. N=1은 사후 서사밖에 안 나오지만,
  * 같은 주제의 두 집단을 비교하면 셀 수 있는 진술이 나온다.
  */
-export function buildMarketAnalysisPrompt(searchTerm: string, cohort: Cohort): string {
+export function buildMarketAnalysisPrompt(searchTerm: string, cohort: Cohort, options: ProposalOptions = {}): string {
   const { top, bottom } = cohort;
   const bottomStart = top.length + 1;
 
@@ -177,6 +292,8 @@ ${tableRows(top, 1)}
 ${TABLE_HEADER}
 ${tableRows(bottom, bottomStart)}
 
+${channelContrastSection(top, 1)}
+
 ${dataLimits(false)}
 ${thumbnailSection(top, '상위군', 1)}${thumbnailSection(bottom, '하위군', bottomStart)}
 ## 요청
@@ -187,7 +304,9 @@ ${thumbnailSection(top, '상위군', 1)}${thumbnailSection(bottom, '하위군', 
 5. **좋아요율**: 성과배수와 좋아요율이 같이 움직이는지, 아니면 무관한지.
 6. **설명되지 않는 부분**: 위 관찰로 설명이 안 되는 상위군 항목을 짚고, 무엇을 더 봐야 하는지.
 
-${OUTPUT_RULES}`;
+${OUTPUT_RULES}
+
+${proposalSection(searchTerm, proposalFormat(top), options)}`;
 }
 
 /**
@@ -195,7 +314,7 @@ ${OUTPUT_RULES}`;
  *
  * 대조군 없이 잘된 영상 하나만 주면 무엇이 원인인지 원리적으로 가릴 수 없다.
  */
-export interface SingleVideoPromptOptions {
+export interface SingleVideoPromptOptions extends ProposalOptions {
   /** 사용자가 YouTube에서 복사해 붙여넣은 자막. 있을 때만 대본 구조 분석을 요청한다. */
   transcript?: string;
 }
@@ -227,6 +346,7 @@ ${tableRows(contrast, 1)}
 - **일평균 배수**: ${formatMultiple(video.metrics.viewsPerDayMultiple)} — 일평균 조회수 ÷ 같은 채널·같은 포맷 동료의 일평균 중앙값. 누적 배수는 오래된 영상에 유리하고 일평균은 신작에 유리하므로 둘을 함께 볼 것.
 - **조회수**: ${formatViewCount(video.viewCount)} (일평균 ${formatViewCount(Math.round(video.metrics.viewsPerDay))})
 - **좋아요율**: ${formatPercent(video.metrics.likeRate)} / **댓글율**: ${formatPercent(video.metrics.commentRate)}
+- **구독자 대비**: ${formatMultiple(video.metrics.subscriberRatio)} — 조회수 ÷ 구독자수. 참고값(구독자 비공개·반올림 때문에 주지표가 아님)
 - **길이**: ${formatDuration(video.duration)}
 - **업로드**: ${video.metrics.daysSincePublish}일 전
 - **태그**: ${tagsLabel(video)}
@@ -243,17 +363,15 @@ ${hasTranscript ? transcriptSection(options.transcript as string) : ''}
 1. **제목 분석**: 대상 영상의 제목이 대조군 제목들과 구조적으로 무엇이 다른지. 다르지 않으면 "차이 없음".
 2. **관찰 가능한 성과 신호**: 성과배수·좋아요율·댓글율·일평균 조회수에서 읽을 수 있는 것. 각 수치가 무엇을 시사하고 무엇을 시사하지 **않는지** 함께.
 3. **가설과 확인 방법**: 성공 요인 가설 3개. 각 가설마다 **무엇을 추가로 보면 검증되는지**를 적을 것 (예: "썸네일 첨부"${hasTranscript ? '' : ', "자막 붙여넣기"'}).
-4. **내 주제 적용**: 아래 주제로 제목 5안. 각 안이 위 관찰 중 무엇에 근거하는지 표시.
 ${
   hasTranscript
-    ? `5. **대본 구조 (자막 근거)**: 훅(첫 15초 안에 무엇을 약속/제기하는지), 전개 순서, 패턴 인터럽트(질문·반전·전환)가 나오는 지점, 마무리/CTA. **각 항목마다 자막의 어느 문장이 근거인지 그대로 인용**할 것. 자막에 없는 시각 요소(자막·B-roll·표정)는 "자막으로는 알 수 없음"이라고 쓸 것.
+    ? `4. **대본 구조 (자막 근거)**: 훅(첫 15초 안에 무엇을 약속/제기하는지), 전개 순서, 패턴 인터럽트(질문·반전·전환)가 나오는 지점, 마무리/CTA. **각 항목마다 자막의 어느 문장이 근거인지 그대로 인용**할 것. 자막에 없는 시각 요소(자막·B-roll·표정)는 "자막으로는 알 수 없음"이라고 쓸 것.
 `
     : ''
 }
-**👇 내 주제를 여기에 입력하세요 (비워두면 4번은 건너뛰세요):**
-\`\`\`
-[여기에 내 주제 입력]
-\`\`\`
+${OUTPUT_RULES}
 
-${OUTPUT_RULES}`;
+${channelContrastSection([video], 0).replace('| 0 |', '| 대상 |')}
+
+${proposalSection(searchTerm, proposalFormat([video]), options)}`;
 }
