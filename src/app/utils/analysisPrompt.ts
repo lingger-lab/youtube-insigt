@@ -86,12 +86,54 @@ function cell(text: string): string {
   return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
+function formatLabel(v: VideoWithMetrics): string {
+  const t = getVideoType(v.duration, v.liveStatus);
+  return t === 'shorts' ? 'Shorts' : t === 'long' ? '롱폼' : 'LIVE';
+}
+
+function median(values: number[]): number | null {
+  const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+function secondsOf(v: VideoWithMetrics): number {
+  const m = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(v.duration);
+  if (!m) return 0;
+  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+}
+
+function clockOf(seconds: number): string {
+  const s = Math.round(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/**
+ * 군 요약 — 중앙값은 앱이 계산한다. 실측(V.5, GPT)에서 모델이 표를 보고 손으로 중앙값을
+ * 냈는데, 산수는 결정적 작업이라 모델에게 맡길 이유가 없다.
+ */
+function cohortSummary(videos: VideoWithMetrics[]): string {
+  const shorts = videos.filter((v) => getVideoType(v.duration, v.liveStatus) === 'shorts').length;
+  const long = videos.filter((v) => getVideoType(v.duration, v.liveStatus) === 'long').length;
+  const live = videos.length - shorts - long;
+  const len = median(videos.filter((v) => v.liveStatus === 'none').map(secondsOf));
+  const days = median(videos.map((v) => v.metrics.daysSincePublish));
+  const like = median(videos.map((v) => v.metrics.likeRate).filter((x): x is number => x !== null));
+  const mult = median(videos.map((v) => v.metrics.performanceMultiple).filter((x): x is number => x !== null));
+  const chars = median(videos.map((v) => [...v.title].length));
+  return `요약: n=${videos.length} · Shorts ${shorts} / 롱폼 ${long}${live ? ` / 라이브 ${live}` : ''} · 길이 중앙값 ${len === null ? '—' : clockOf(len)} · 경과일 중앙값 ${days === null ? '—' : Math.round(days).toLocaleString()}일 · 좋아요율 중앙값 ${formatPercent(like)} · 성과배수 중앙값 ${formatMultiple(mult)} · 제목 글자수 중앙값 ${chars === null ? '—' : Math.round(chars)}`;
+}
+
 function tableRows(videos: VideoWithMetrics[], startIndex: number): string {
   return videos
     .map((v, i) =>
       [
         `${startIndex + i}`,
         cell(v.title),
+        // 글자 수는 앱이 센다. 모델에게 세라고 하면 기준이 없다며 거부하거나(실측) 틀리게 센다.
+        `${[...v.title].length}`,
+        formatLabel(v),
         formatMultiple(v.metrics.performanceMultiple),
         formatViewCount(v.viewCount),
         v.liveStatus === 'none' ? formatDuration(v.duration) : 'LIVE',
@@ -104,8 +146,11 @@ function tableRows(videos: VideoWithMetrics[], startIndex: number): string {
     .join('\n');
 }
 
-const TABLE_HEADER = `| # | 제목 | 성과배수 | 조회수 | 길이 | 좋아요율 | 경과 | 태그 |
-|---|---|---|---|---|---|---|---|`;
+const TABLE_HEADER = `| # | 제목 | 글자수 | 포맷 | 성과배수 | 조회수 | 길이 | 좋아요율 | 경과 | 태그 |
+|---|---|---|---|---|---|---|---|---|---|`;
+
+const TABLE_LEGEND = `범례: 글자수 = 공백·기호·해시태그 포함 유니코드 문자 수(앱이 셈) · 태그 (없음) = 업로더가 태그를 달지 않음(데이터 없음이 아님) · 포맷은 길이·liveBroadcastContent로 판별.
+**포맷이 다른 행끼리 길이·구조·훅을 비교하지 말 것** — 포맷별로 나눠 세고, 한쪽 포맷만 있으면 그렇게 적는다.`;
 
 /** 사용자가 붙여넣은 자막에서 프롬프트에 싣는 최대 길이. 넘치면 앞부분만 싣고 그 사실을 적는다. */
 export const TRANSCRIPT_MAX_CHARS = 12_000;
@@ -256,7 +301,8 @@ ${topicBlock}
 - 제목 5개 리스트 / 썸네일 텍스트 5개 리스트 / 1문장 전략 요약(TL;DR)
 
 ## 시안 작성 규칙
-- 시안의 **모든 문장**에 [행 n] / [원칙 ID] / [가정] 중 하나를 단다. 셋 다 달 수 없는 문장은 쓰지 않는다.
+- 시안의 **모든 문장**에 [행 n] / [원칙 ID] / [가정] / [데이터 없음] 중 하나를 단다. 넷 다 달 수 없는 문장은 쓰지 않는다.
+- 답변 **맨 끝에 체크표**: A~F 각 절이 있는가(Y/N), 세트가 5개인가, 태그 없는 시안 문장이 0개인가, 관찰의 중앙값을 표의 요약 줄과 대조했는가. N이 있으면 그 자리에서 채운다.
 - [가정]은 숨기지 않고 그대로 드러낸다. "부족하면 가정하고 진행"이 아니라 **가정임을 표기하고 진행**이다.
 - 원칙과 이 검색어의 데이터가 충돌하면 데이터를 따르고, 충돌을 그대로 적는다.
 - 근거 없는 효과 수치("CTR 30% 상승")는 쓰지 않는다.`;
@@ -285,12 +331,16 @@ export function buildMarketAnalysisPrompt(searchTerm: string, cohort: Cohort, op
 - 표본은 상위 ${top.length}건 / 하위 ${bottom.length}건, 총 ${top.length + bottom.length}건입니다.
 
 ## 상위군 (성과배수 상위)
+${cohortSummary(top)}
 ${TABLE_HEADER}
 ${tableRows(top, 1)}
 
 ## 하위군 (성과배수 하위 — 결과 안에서 상대적으로 낮은 쪽)
+${cohortSummary(bottom)}
 ${TABLE_HEADER}
 ${tableRows(bottom, bottomStart)}
+
+${TABLE_LEGEND}
 
 ${channelContrastSection(top, 1)}
 
@@ -331,8 +381,11 @@ export function buildSingleVideoPrompt(
   const contrastSection =
     contrast.length > 0
       ? `## 대조군 — 같은 검색어에서 채널 평소에 못 미친 영상
+${cohortSummary(contrast)}
 ${TABLE_HEADER}
 ${tableRows(contrast, 1)}
+
+${TABLE_LEGEND}
 
 이 영상들과 **무엇이 달랐는지**를 기준으로 보세요. 대상 영상만 보고 성공 요인을 지목하면, 같은 방식으로 하고 묻힌 영상들이 보이지 않습니다.`
       : `## 대조군 없음

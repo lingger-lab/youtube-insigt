@@ -399,3 +399,45 @@ describe('시안 절 — 관찰·원칙·가정 중 하나를 근거로', () => 
     assert.ok(p.includes('[원칙 S1'));
   });
 });
+
+// V.5 첫 실측(GPT, 2026-09-09)에서 드러난 표 결함: 글자 수·포맷을 모델이 "데이터 없음"으로 처리했고,
+// 태그 (없음)을 데이터 없음으로 오독했으며, 중앙값을 손으로 계산했다. 셀 수 있는 것은 앱이 센다.
+describe('표 — 앱이 셀 수 있는 값은 앱이 센다 (V.5 실측 반영)', () => {
+  const mixed = withMetrics(
+    [
+      ...Array.from({ length: 6 }, (_, i) => makeVideo(`s${i}`, 30 - i, { duration: 'PT24S', title: `짧은 영상 ${i}`, channel: reliableChannel() })),
+      ...Array.from({ length: 6 }, (_, i) => makeVideo(`l${i}`, 6 - i, { duration: 'PT4M10S', title: `긴 롱폼 영상 제목 ${i}`, channel: reliableChannel() })),
+    ],
+    NOW,
+  );
+  const prompt = buildMarketAnalysisPrompt('키워드', selectCohort(mixed, 6));
+
+  test('표에 포맷 열과 제목 글자수 열이 있다', () => {
+    assert.ok(prompt.includes('| 포맷 |'));
+    assert.ok(prompt.includes('| 글자수 |'));
+    assert.ok(/\| Shorts \|/.test(prompt) && /\| 롱폼 \|/.test(prompt));
+    assert.ok(prompt.includes(`| ${'짧은 영상 0'.length} |`));
+  });
+
+  test('군마다 앱이 계산한 요약(건수·포맷 구성·중앙값)을 싣는다', () => {
+    assert.ok(prompt.includes('요약: n=6'));
+    assert.ok(prompt.includes('Shorts 6 / 롱폼 0'));
+    assert.ok(prompt.includes('길이 중앙값 0:24'));
+    assert.ok(prompt.includes('경과일 중앙값'));
+    assert.ok(prompt.includes('좋아요율 중앙값'));
+  });
+
+  test('태그 (없음)의 뜻과 글자수 기준을 범례로 적는다', () => {
+    assert.ok(prompt.includes('(없음) = 업로더가 태그를 달지 않음'));
+    assert.ok(prompt.includes('글자수 = 공백·기호·해시태그 포함'));
+  });
+
+  test('포맷이 다른 행끼리 길이·구조를 비교하지 말라고 못 박는다', () => {
+    assert.ok(prompt.includes('포맷이 다른 행끼리'));
+  });
+
+  test('[데이터 없음]을 공식 태그로 허용하고, 답변 끝 체크표를 요구한다', () => {
+    assert.ok(prompt.includes('[데이터 없음]'));
+    assert.ok(prompt.includes('체크표'));
+  });
+});
