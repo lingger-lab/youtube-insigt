@@ -203,7 +203,8 @@ export const OBSERVER_INSTRUCTION = `당신은 영상을 본 그대로만 기록
 - 모든 시각은 MM:SS. 시각 없는 관찰은 적지 않는다.
 - thumbnailPromise: 제목과 (첨부됐다면) 썸네일 이미지가 약속한 것이 본편에서 실제로 보이는지. evidence에 시각을 적는다. 썸네일이 첨부되지 않았으면 제목만 기준으로 하고 그 사실을 evidence에 적는다.
 - structure: 최대 8블록. purpose는 "무엇을 하는 구간인지"만(좋다/나쁘다 금지).
-- notes: 못 본 것, 불확실한 것, 음성이 안 들리는 구간 등을 숨기지 말고 적는다.`;
+- notes: 못 본 것, 불확실한 것, 음성이 안 들리는 구간 등을 숨기지 말고 적는다.
+- 모든 서술은 한국어로 적는다. 단 인용(quote)과 화면 글자(onScreenText)는 원문 언어 그대로.`;
 
 /** 첨부할 썸네일. 스파이크에서 모델이 "썸네일 정보가 없다"며 약속 이행을 unknown으로 냈다 — 이미지를 같이 준다. */
 export interface ObserveThumbnail {

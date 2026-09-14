@@ -133,6 +133,8 @@ describe('buildObserveRequest — 우리가 보내는 모양을 고정한다', (
     assert.ok(text.includes('원문 그대로'));
     assert.ok(text.includes('MM:SS'));
     assert.ok(text.includes('에어프라이어 치킨 10분'));
+    // 실측(20편 수집): Lite가 6/20을 영어로 서술 → 언어 지시 추가
+    assert.ok(text.includes('한국어로 적는다'));
   });
 
   test('JSON 스키마의 필수 키가 ObservationPayload와 같다 (미러 고정)', () => {
