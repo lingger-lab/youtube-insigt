@@ -119,11 +119,14 @@ function cohortSummary(videos: VideoWithMetrics[]): string {
   const long = videos.filter((v) => getVideoType(v.duration, v.liveStatus) === 'long').length;
   const live = videos.length - shorts - long;
   const len = median(videos.filter((v) => v.liveStatus === 'none').map(secondsOf));
+  const lenShorts = median(videos.filter((v) => getVideoType(v.duration, v.liveStatus) === 'shorts').map(secondsOf));
+  const lenLong = median(videos.filter((v) => getVideoType(v.duration, v.liveStatus) === 'long').map(secondsOf));
+  const perDay = median(videos.map((v) => v.metrics.viewsPerDayMultiple).filter((x): x is number => x !== null));
   const days = median(videos.map((v) => v.metrics.daysSincePublish));
   const like = median(videos.map((v) => v.metrics.likeRate).filter((x): x is number => x !== null));
   const mult = median(videos.map((v) => v.metrics.performanceMultiple).filter((x): x is number => x !== null));
   const chars = median(videos.map((v) => [...v.title].length));
-  return `요약: n=${videos.length} · Shorts ${shorts} / 롱폼 ${long}${live ? ` / 라이브 ${live}` : ''} · 길이 중앙값 ${len === null ? '—' : clockOf(len)} · 경과일 중앙값 ${days === null ? '—' : Math.round(days).toLocaleString()}일 · 좋아요율 중앙값 ${formatPercent(like)} · 성과배수 중앙값 ${formatMultiple(mult)} · 제목 글자수 중앙값 ${chars === null ? '—' : Math.round(chars)} · 주제: ${topicDistribution(videos)} · 음성: ${audioDistribution(videos)}`;
+  return `요약: n=${videos.length} · Shorts ${shorts} / 롱폼 ${long}${live ? ` / 라이브 ${live}` : ''} · 길이 중앙값 ${len === null ? '—' : clockOf(len)} (Shorts ${lenShorts === null ? '—' : clockOf(lenShorts)} / 롱폼 ${lenLong === null ? '—' : clockOf(lenLong)}) · 경과일 중앙값 ${days === null ? '—' : Math.round(days).toLocaleString()}일 · 좋아요율 중앙값 ${formatPercent(like)} · 성과배수 중앙값 ${formatMultiple(mult)} · 일평균 배수 중앙값 ${formatMultiple(perDay)} · 제목 글자수 중앙값 ${chars === null ? '—' : Math.round(chars)} · 주제: ${topicDistribution(videos)} · 음성: ${audioDistribution(videos)}`;
 }
 
 function tableRows(videos: VideoWithMetrics[], startIndex: number): string {
@@ -232,13 +235,14 @@ const OUTPUT_RULES = `## 작성 규칙
 - 출력은 Markdown.`;
 
 /** 번호는 표의 행 번호(startIndex부터)와 같아야 썸네일 시트의 #라벨과 맞는다. */
+/**
+ * 한 줄로 압축한다. 실측(2026-09-14): 20줄짜리 링크 목록을 지워야 외부 LLM이 답을 끝냈다.
+ * 링크는 시트를 못 붙였을 때의 예비이므로 "#번호=ID" 목록과 URL 형식만 있으면 된다.
+ */
 function thumbnailSection(videos: VideoWithMetrics[], label: string, startIndex: number): string {
-  const links = videos
-    .map((v, i) => (v.thumbnailHighUrl ? `#${startIndex + i}. ${v.thumbnailHighUrl}` : null))
-    .filter((line): line is string => line !== null)
-    .join('\n');
-  if (!links) return '';
-  return `\n## ${label} 썸네일 링크 (시트를 못 붙였을 때 직접 열어 첨부)\n${links}\n`;
+  const ids = videos.map((v, i) => `#${startIndex + i}=${v.id}`).join(' ');
+  if (!ids) return '';
+  return `\n## ${label} 썸네일 (시트를 못 붙였을 때: https://i.ytimg.com/vi/<ID>/maxresdefault.jpg 를 직접 열어 첨부)\n${ids}\n`;
 }
 
 /** 시안 대상 포맷. 라이브는 시안 대상이 아니다. 섞여 있으면 null(원칙 전부 싣고 표기). */
@@ -390,7 +394,7 @@ ${topicBlock}
 각 세트에:
 - 제목 (글자 수 표기 [원칙 T2·T4]) — 상위군 제목을 **베끼지 말고** 약속의 형태만 가져온다
 - 썸네일 텍스트 (4단어 이하 [원칙 H1]) — 제목과 중복 금지 [원칙 T5]
-- 썸네일 구성 (피사체 / 앵글 / 대비 / 여백 [원칙 H2·H3]) — 상위군 썸네일 #번호는 **시트가 첨부됐을 때만** 근거로 쓴다. 미첨부면 [원칙]만.
+- 썸네일 구성 (피사체 / 앵글 / 대비 / 여백 [원칙 H2·H3]) — 시트가 첨부됐다면 **세트마다 상위군 썸네일 #번호를 최소 1개 인용**해 "무엇을 가져왔는지" 적는다(예: "#4처럼 결과물 클로즈업 [행 4]"). 미첨부면 [원칙]만.
 - 근거: [행 n] 또는 [원칙 ID]
 - 금지 요소 (작은 글자, 저해상도, 본편이 못 지키는 약속 [원칙 T6])
 - 기대 KPI (CTR / 평균 시청시간 / 완시율 중 하나) — 수치 예측은 쓰지 않는다
@@ -467,10 +471,20 @@ ${thumbnailSection(top, '상위군', 1)}${thumbnailSection(bottom, '하위군', 
 4. **태그 사용**: 상위군에만 나타나는 태그, 두 군 공통 태그를 구분.
 5. **좋아요율**: 성과배수와 좋아요율이 같이 움직이는지, 아니면 무관한지.
 6. **설명되지 않는 부분**: 위 관찰로 설명이 안 되는 상위군 항목을 짚고, 무엇을 더 봐야 하는지.
-
+${observationRequest(coverageOf([...top, ...bottom], options.observations))}
 ${OUTPUT_RULES}
 
 ${proposalSection(searchTerm, proposalFormat(top), options)}`;
+}
+
+/**
+ * 관찰 표가 있을 때만 붙는 요청. 실측(2026-09-14, GPT): 요청에 없으니 모델이 관찰 표를 첫 프레임 인용에만 쓰고
+ * 세지 않았다. "세어라"는 명시적으로 시켜야 한다.
+ */
+function observationRequest(coverage: ObservationCoverage): string {
+  if (coverage.observed === 0) return '';
+  return `7. **영상 관찰 표(위 "영상 관찰")**: 다음을 상위군 n건 / 하위군 n건으로 세어 표로 — 첫 3초에 완성품이 보이는가, 발화(첫 문장)가 있는가, 약속 확인 시점이 00:03 이내인가, 구조 블록 수, 패턴 인터럽트 수, 자막 밀도(heavy 비율), CTA 유무. 차이가 없는 항목은 "차이 없음". 관찰이 없는 행은 세지 않는다.
+`;
 }
 
 /**

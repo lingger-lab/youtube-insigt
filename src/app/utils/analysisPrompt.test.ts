@@ -219,12 +219,42 @@ describe('프롬프트가 지어내기를 허가하지 않는다', () => {
   });
 
   // 시트의 #라벨과 표의 행 번호가 어긋나면 LLM이 엉뚱한 썸네일을 본다.
+  // V.5 2차 실측(GPT): 관찰 표를 세지 않았고 B절 썸네일 근거에 #번호가 없었다 — 요청하지 않은 것은 하지 않는다.
+  test('관찰이 있으면 요청 7(관찰 표 세기)이 붙고, 없으면 붙지 않는다', () => {
+    const set = withMetrics(Array.from({ length: 8 }, (_, i) => makeVideo(`q${i}`, 8 - i, { channel: reliableChannel() })), NOW);
+    const c = selectCohort(set, 4);
+    const without = buildMarketAnalysisPrompt('키워드', c);
+    assert.ok(!without.includes('7. **영상 관찰 표'));
+    const obs = (id: string): VideoObservation => ({ videoId: id, observedAt: 'x', model: 'm', processing: 'static', language: 'ko', hook: { first3s: { visual: 'v', spoken: null, onScreenText: null }, firstLine: null, promiseStatedAt: null }, structure: [], patternInterrupts: [], thumbnailPromise: { kept: 'unknown', evidence: '', at: null }, cta: { present: false, at: null, text: null }, faceOnCamera: 'no', textOverlay: 'none', notes: [], usage: { inputTokens: 1, outputTokens: 1, estimatedCostUsd: null, elapsedMs: 1 } });
+    const withObs = buildMarketAnalysisPrompt('키워드', c, { observations: { [c.top[0].id]: obs(c.top[0].id) } });
+    assert.ok(withObs.includes('7. **영상 관찰 표'));
+    assert.ok(withObs.includes('상위군 n건 / 하위군 n건으로 세어'));
+  });
+
+  test('B절은 시트 첨부 시 세트마다 상위군 썸네일 #번호 인용을 요구한다', () => {
+    const p = buildMarketAnalysisPrompt('키워드', selectCohort(makeSet(20), 5));
+    assert.ok(p.includes('세트마다 상위군 썸네일 #번호를 최소 1개 인용'));
+  });
+
+  test('군 요약에 포맷별 길이 중앙값과 일평균 배수 중앙값이 있다 (모델이 손계산하던 값)', () => {
+    const p = buildMarketAnalysisPrompt('키워드', selectCohort(makeSet(20), 5));
+    assert.ok(/길이 중앙값 \d+:\d{2} \(Shorts [^)]+ \/ 롱폼 [^)]+\)/.test(p), p.match(/요약: [^\n]*/)?.[0]);
+    assert.ok(p.includes('일평균 배수 중앙값'));
+  });
+
+  test('썸네일 링크 절은 한 줄(#번호=ID)로 압축된다', () => {
+    const p = buildMarketAnalysisPrompt('키워드', selectCohort(makeSet(20), 5));
+    assert.ok(p.includes('#1=v0 #2=v1'));
+    assert.ok(!p.includes('#1. https://i.ytimg.com'));
+    assert.ok(p.includes('https://i.ytimg.com/vi/<ID>/maxresdefault.jpg'));
+  });
+
   test('시장 분석의 썸네일 번호는 하위군에서 상위군 뒤부터 이어진다', () => {
     const p = buildMarketAnalysisPrompt('키워드', selectCohort(makeSet(20), 5));
-    assert.ok(p.includes('#1. https://i.ytimg.com/vi/v0/'));
+    assert.ok(p.includes('#1=v0'));
     assert.ok(p.includes('## 하위군 썸네일'));
-    assert.ok(p.includes('#6. https://i.ytimg.com/vi/'));
-    assert.equal(p.includes('#11.'), false);
+    assert.ok(p.includes('#6=v'));
+    assert.equal(p.includes('#11='), false);
   });
 });
 
