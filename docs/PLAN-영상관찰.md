@@ -47,7 +47,7 @@
 
 | 결정 | 권고 | 이유 |
 |---|---|---|
-| 모델 기본값 | `gemini-3.8-flash`, `GEMINI_MODEL`로 교체 가능 | 원문 인용·타임스탬프 지시 준수가 핵심. 비용 차이(편당 $0.003)는 무시 가능. Flash-Lite는 스파이크에서 품질 비교 후 기본값 변경 검토 |
+| 모델 기본값 | ~~3.8 Flash~~ → **`gemini-3.5-flash-lite`** (2026-09-14 사용자 결정), `GEMINI_MODEL`로 3.8 Flash 선택 가능 | 실측: static에서 Shorts·롱폼 관찰 내용 동일, 3.3~9.6초(3.8 Flash 7.8~15.7초), 비용 45%, 무료 요청 한도 여유. 단 Lite **agentic은 날조**(F41) → static 고정이 전제 |
 | 처리 모드 | ~~<5분 static / ≥5분 agentic~~ → **항상 static, 30분 상한** (2026-09-14 수정) | 실측 F41: Lite agentic이 15분 영상을 날조(영상 토큰 0), 3.8 Flash agentic은 정확하나 110초. static은 Lite 9.6초·85K 토큰·정확 |
 | 날조 방어 | `usage`에 video/image 토큰이 0이면 `OBSERVE_NO_VIDEO_EVIDENCE`로 폐기 | 스키마 검증은 날조를 못 잡는다. 토큰 증거가 유일한 신호 |
 | 해상도 | 기본(unspecified ≈ low, 70토큰/초) | 훅·구조 관찰엔 충분. 썸네일 대비는 이미 이미지가 있음 |

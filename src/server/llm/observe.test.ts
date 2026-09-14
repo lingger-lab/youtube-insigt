@@ -63,10 +63,11 @@ describe('설정', () => {
     assert.equal(isObserveConfigured(), true);
   });
 
-  test('모델은 기본 gemini-3.8-flash, GEMINI_MODEL로 교체', () => {
+  test('모델은 기본 gemini-3.5-flash-lite(실측 결정), GEMINI_MODEL로 교체', () => {
     assert.equal(configuredObserveModel(), DEFAULT_OBSERVE_MODEL);
-    process.env.GEMINI_MODEL = 'gemini-3.5-flash-lite';
-    assert.equal(configuredObserveModel(), 'gemini-3.5-flash-lite');
+    assert.equal(DEFAULT_OBSERVE_MODEL, 'gemini-3.5-flash-lite');
+    process.env.GEMINI_MODEL = 'gemini-3.8-flash';
+    assert.equal(configuredObserveModel(), 'gemini-3.8-flash');
   });
 
   // 돈·한도가 걸린 기능이라, 키 없이 호출되면 네트워크에 나가기 전에 막혀야 한다.

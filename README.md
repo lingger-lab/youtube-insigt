@@ -67,7 +67,7 @@ YouTube 검색 결과를 **채널 평소 성과 대비 얼마나 터졌는지**(
    활성화됩니다. 앱은 영상을 받지 않고 공개 URL만 Gemini에 넘깁니다.
    ```
    GEMINI_API_KEY=AIza...         # 없으면 기능 꺼짐. NEXT_PUBLIC_ 금지
-   GEMINI_MODEL=gemini-3.8-flash  # 선택, 기본값
+   GEMINI_MODEL=gemini-3.5-flash-lite  # 선택, 기본값 (3.8 Flash와 실측 품질 동일·3~4배 빠름·45% 비용)
    ```
 
 4. **개발 서버 실행**

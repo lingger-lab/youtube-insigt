@@ -122,7 +122,7 @@ src/server/                서버 전용. 키는 이 경계 밖으로 안 나간
   youtube/thumbnail.ts     i.ytimg.com 수신 (maxres→hq→mq). 프록시와 LLM 첨부가 같이 씀
   llm/analyze.ts           @anthropic-ai/sdk · claude-opus-5 · 스트리밍→finalMessage · refusal fallback
                            · 응답마다 usage + 추정 비용. 키 없으면 네트워크 전에 차단
-  llm/observe.ts           @google/genai · gemini-3.8-flash · 공개 YouTube URL을 넘겨 영상을 직접 보게 함(관찰만,
+  llm/observe.ts           @google/genai · gemini-3.5-flash-lite(기본, 실측 결정) · 공개 YouTube URL을 넘겨 영상을 직접 보게 함(관찰만,
                            평가 금지) · JSON Schema + zod 재검증 · store:false · **항상 static**(agentic은 날조 사례로
                            금지, F41) · 영상 토큰 0이면 관찰 폐기(OBSERVE_NO_VIDEO_EVIDENCE) · 30분 상한 · 썸네일 첨부
                            · GEMINI_API_KEY 없으면 차단. 편당 1요청

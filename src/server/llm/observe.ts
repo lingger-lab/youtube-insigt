@@ -16,7 +16,11 @@ import { fetchThumbnail } from '../youtube/thumbnail.ts';
  * 설계: docs/PLAN-영상관찰.md
  */
 
-export const DEFAULT_OBSERVE_MODEL = 'gemini-3.8-flash';
+/**
+ * 기본 gemini-3.5-flash-lite (2026-09-14 결정). 실측: static에서 Shorts·15분 롱폼 모두 3.8 Flash와 관찰 내용 동일,
+ * 3~4배 빠름(3.3~9.6초), 비용 45%, 무료 요청 한도 여유. 3.8 Flash는 GEMINI_MODEL로 선택.
+ */
+export const DEFAULT_OBSERVE_MODEL = 'gemini-3.5-flash-lite';
 /**
  * 항상 static(1 FPS 전체 프레임). agentic은 쓰지 않는다 — 실측(2026-09-14, FINDINGS F41):
  * Flash-Lite agentic은 15분 한국어 요리 영상을 영어 자연요법 영상으로 **날조**했고(영상 토큰 0),
