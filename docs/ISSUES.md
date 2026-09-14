@@ -90,7 +90,9 @@
 
 **7. 영상 관찰 — Gemini (`GEMINI_API_KEY` 확보 후. 프리뷰 무료, 하루 8시간분)**
 - [x] 키 없이: `GET /api/observe` → `enabled:false`, `POST` → 503, 버튼 잠김 (코드 경로 테스트)
-- [ ] `scripts/gemini-spike.ts` 3편: 편당 지연 p95 < 40초인가 → 아니면 background/poll로 설계 변경
+- [ ] 키 발급 직후 **AI Studio 레이트리밋 페이지에서 3.8 Flash·3.5 Flash-Lite의 RPM/RPD를 읽어 기록** (비공식 실측 ≈20/일 vs ≈500/일 확인). 20/일이면 기본 모델·요청 단위 재결정(PLAN §6)
+- [ ] 스파이크 `usage.total_input_tokens`가 영상 길이에 비례해 세지는지(≈100/초) → "무료"가 토큰까지인지의 근거
+- [ ] `scripts/gemini-spike.ts` 3편: 편당 지연 p95 < 40초인가 → 아니면 background/poll로 설계 변경. **RPD 20이면 하루 예산의 15%** — Flash-Lite로도 같은 3편 비교
 - [ ] Shorts를 `watch?v=` URL로 넘겨도 되는가 · 한국어 첫 문장 인용이 원문과 맞는가(영상 직접 대조)
 - [ ] 비공개·삭제·연령제한·라이브 영상의 오류 코드가 `OBSERVE_VIDEO_UNAVAILABLE`/`BAD_REQUEST`로 분류되는가 (400 메시지 실측 후 분류 조정)
 - [ ] 무료 티어 RPM: 병렬 3이 429를 내는가 → observeClient 백오프 동작

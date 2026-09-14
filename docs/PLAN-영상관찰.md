@@ -11,7 +11,9 @@
 |---|---|---|
 | 입력 방식 | `interactions.create({ model, input: [{type:'video', uri:'https://www.youtube.com/watch?v=…'}, {type:'text', text}] })`. 공개 영상만(비공개·일부공개 불가) | video-understanding |
 | 상태 | YouTube URL 입력은 **프리뷰, 무료**. "요금·제한은 바뀔 수 있음" | video-understanding |
-| 한도 | 무료 티어 **하루 8시간분**, 요청당 최대 10편. RPM/RPD는 프로젝트별(AI Studio에서 확인, 문서에 미공개) | video-understanding, rate-limits |
+| 한도 | 무료 티어 **하루 8시간분**, 요청당 최대 10편. RPM/RPD는 프로젝트별(AI Studio에서만 확인, 문서에서 표 삭제됨) | video-understanding, rate-limits |
+| **무료 티어 RPD (2026-09-14 재조사)** | Google이 표를 지워 **비공식 실측만 있음**: 3.8 Flash **≈20 요청/일**(2026-09-02 실측 글 + 공식 포럼의 "20 RPD 너무 적다" 스레드), 3.5 Flash-Lite ≈500/일(별도 버킷, 출처 1). 편당 1요청 설계에선 **8시간보다 이게 먼저 걸린다** — 20편 수집 = 하루 1회. 키 발급 후 AI Studio 값으로 확정 | dev.to/romeroyang, discuss.ai.google.dev/t/180609, github prathame/DG-ERP#505 |
+| "YouTube URL 무료"의 범위 | 공식 문구는 "기능이 프리뷰이며 무료(no charge)"까지. **영상 토큰이 유료 티어에서 과금되는지는 공개 문서로 확정 못 함** → 보수적으로 "일반 토큰 요율로 과금"으로 추정. 스파이크의 `usage.total_input_tokens`로 토큰이 세지는지 확인 | video-understanding(문구), 미확정 |
 | 토큰(정적 모드) | 초당 약 100(기본/low 해상도, 프레임 70 + 오디오 32) ~ 300(high). 30초 Shorts ≈ 3,000 토큰, 10분 롱폼 ≈ 60,000 | video-understanding, media-resolution, tokens |
 | agentic 모드 | 3.8/3.7/3.6 Flash, 3.5 Flash-Lite. 자막·프레임·오디오를 필요한 만큼만 로드. 긴 영상은 최대 88% 절감. 5분 미만 클립은 정적 모드 권장 | video-understanding |
 | 요금(유료 전환 시) | 3.8 Flash 입력 $0.75 / 출력 $3.75 per 1M (2026-12-31까지, 이후 2배). 3.5 Flash-Lite 입력 $0.30 / 출력 $2.50 | pricing |
@@ -114,6 +116,13 @@ docs/ISSUES.md, CLAUDE.md, README, .env.sample (GEMINI_API_KEY, GEMINI_MODEL)
 ## 6. 할당량·비용 회계
 
 - 무료 티어 8시간/일: 대조군 20편 × 30초 = 10분/검색. 롱폼 20편 × 10분 = 200분 → 하루 2회. 롱폼은 agentic이라 토큰은 적지만 **길이 한도는 길이로 센다**.
+- **그보다 먼저 걸리는 것: 무료 티어 RPD ≈20(3.8 Flash, 비공식 실측).** 편당 1요청이면 20편 수집이 하루치. 선택지:
+  (a) `GEMINI_MODEL=gemini-3.5-flash-lite` — RPD ≈500(비공식), 요금 40%, agentic 지원. 관찰 품질은 스파이크로 비교
+  (b) 요청당 최대 10편 묶기 — 요청 수 1/10. 단 한 편 실패가 묶음 전체 실패, 60초 상한 위험 → 스파이크 지연 보고 결정
+  (c) 결제 연결(Tier 1) — 한도 대폭 상승, 비용은 아래 표대로 월 $6~70 수준, 10분당 $10 지출 상한 있음
+- 비용(보수 가정: 토큰 과금, 정적 102토큰/초, agentic 50% 절감, 지시문 1K·출력 0.8K):
+  3.8 Flash — Shorts $0.006/편(20편 $0.12), 3분 롱폼 $0.018, 10분 $0.027 · 2027년부터 2배 · Flash-Lite는 각각 약 45%.
+  월 1,800편(하루 3검색×20편): Shorts 위주 $11(Flash) / $6(Lite), 롱폼 위주 $32~69(Flash) / $14~29(Lite).
 - 앱은 이번 실행이 보낸 영상 분(分)을 합산해 표시. 전역 일일 합산은 서버가 못 함(인스턴스 단위) → 한도 초과는 429로 드러남, 그대로 표시.
 - 프리뷰 무료라 `estimatedCostUsd`는 "유료 전환 시 추정"으로 라벨.
 
