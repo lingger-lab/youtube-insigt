@@ -237,6 +237,8 @@ describe('프롬프트가 지어내기를 허가하지 않는다', () => {
     assert.ok(p.indexOf('## 진행 방식') < p.indexOf('## 상위군'));
     assert.ok(p.includes('**멈춘다**'));
     assert.ok(p.includes('"계속"'));
+    assert.ok(p.includes('**A·B·F**만 쓰고 멈춘다'), '2단계는 시안 전반만');
+    assert.ok(p.includes('"이제 C, D, E"'));
     assert.ok(p.includes('웹 검색을 하지 않는다'));
   });
 
