@@ -231,6 +231,21 @@ describe('프롬프트가 지어내기를 허가하지 않는다', () => {
     assert.ok(withObs.includes('상위군 n건 / 하위군 n건으로 세어'));
   });
 
+  // 3회차 실측: 관찰 7항목 + 세트 5개 × 구조 설계 전부를 한 답변에 요구하니 ChatGPT가 웹 검색까지 하다 연결이 끊겼다.
+  test('시장 프롬프트는 2단계 진행(관찰 → 멈춤 → "계속" → 시안)과 웹 검색 금지를 맨 앞에 둔다', () => {
+    const p = buildMarketAnalysisPrompt('키워드', selectCohort(makeSet(20), 5));
+    assert.ok(p.indexOf('## 진행 방식') < p.indexOf('## 상위군'));
+    assert.ok(p.includes('**멈춘다**'));
+    assert.ok(p.includes('"계속"'));
+    assert.ok(p.includes('웹 검색을 하지 않는다'));
+  });
+
+  test('C절 구조 설계는 1순위 세트 1개만 상세로 요구한다 (출력량 절감)', () => {
+    const p = buildMarketAnalysisPrompt('키워드', selectCohort(makeSet(20), 5));
+    assert.ok(p.includes('1순위 세트 1개만 상세'));
+    assert.ok(p.includes('(1순위 세트만) 타임라인'));
+  });
+
   test('B절은 시트 첨부 시 세트마다 상위군 썸네일 #번호 인용을 요구한다', () => {
     const p = buildMarketAnalysisPrompt('키워드', selectCohort(makeSet(20), 5));
     assert.ok(p.includes('세트마다 상위군 썸네일 #번호를 최소 1개 인용'));
