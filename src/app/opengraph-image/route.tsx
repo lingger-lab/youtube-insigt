@@ -64,7 +64,7 @@ export async function GET() {
                 maxWidth: '800px',
               }}
             >
-              조회수·구독자수 기반 떡상지수 분석
+              채널 평소 성과 대비 얼마나 터졌는지로 영상 발굴
             </div>
           </div>
           

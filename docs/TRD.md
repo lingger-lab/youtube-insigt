@@ -19,6 +19,7 @@ src/server/                 서버 전용 (키는 이 경계 밖으로 안 나�
   llm/analyze.ts            앱 내 LLM 분석 (선택)
   rateLimit.ts              인메모리 레이트리밋
 src/app/api/{search,thumbnail,analyze}/route.ts
+src/app/history/page.tsx    보관함
 src/app/components/         VideoCard · SearchDepthPicker · ThumbnailSheetButton · TranscriptField
                             · AnalyzeButton · CopyButton · Header · Sidebar · Filters · SearchInput
                             · SortBar · DisplayModeToggle
@@ -48,6 +49,7 @@ docs/ISSUES.md              미해결 이슈 · 검증 체크리스트 · 보류
 - `estimateQuota(depth)` — 검색 깊이별 소비량 (두 버킷)
 - `buildMarketAnalysisPrompt` / `buildSingleVideoPrompt` — 상위·하위 대조군 포함 프롬프트. 지어내기 금지
 - `buildContactSheet` — 썸네일 격자를 canvas로 합성해 `ClipboardItem`(image/png)으로 복사, 미지원 시 다운로드
+- `history.ts` — localStorage 보관함. 검색 이력은 원본만(지표는 열 때 재계산), 출력은 본문 중복 제거, 문자 예산 초과 시 오래된 것부터 제거, 손상 항목은 버리되 경고. 서버 저장 없음
 
 ### 할당량 (2026-06-01 버킷 분리)
 - search.list: 전용 버킷 하루 100회 (호출당 1) — 실질 상한

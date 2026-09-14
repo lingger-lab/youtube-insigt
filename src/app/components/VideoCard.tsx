@@ -15,7 +15,11 @@ import { buildSingleVideoPrompt, type Cohort } from '../utils/analysisPrompt';
 import CopyButton from './CopyButton';
 import TranscriptField from './TranscriptField';
 import AnalyzeButton from './AnalyzeButton';
-import type { LlmStatus } from '../utils/llmClient';
+import type { LlmStatus, AnalysisResult } from '../utils/llmClient';
+import type { NewOutputRecord } from '../utils/history';
+import ObserveButton from './ObserveButton';
+import type { ObserveStatus, VideoObservation } from '../utils/observeClient';
+import { getVideoDurationInSeconds } from '../utils/videoUtils';
 import { useState } from 'react';
 
 interface VideoCardProps {
@@ -28,9 +32,29 @@ interface VideoCardProps {
   llm: LlmStatus;
   /** 강조 컷오프. 결과 집합 상위 20% + 절대 하한. page.tsx가 계산한다. */
   highlightCutoff: number;
+  /** 복사한 프롬프트·받은 분석 결과를 보관함에 남긴다. 저장소가 없으면 undefined. */
+  onOutput?: (output: NewOutputRecord) => void;
+  /** 시안용 "내 주제/채널". 비어 있으면 프롬프트가 입력 칸을 남긴다. */
+  topic?: string;
+  /** 영상 관찰(Gemini) 가능 여부와 보관된 관찰. 서버에 키가 없으면 버튼이 잠긴다. */
+  observe?: ObserveStatus;
+  observations?: Record<string, VideoObservation>;
+  onObserved?: (observation: VideoObservation) => void;
 }
 
-export default function VideoCard({ video, displayMode, cohort, searchTerm, llm, highlightCutoff }: VideoCardProps) {
+export default function VideoCard({
+  video,
+  displayMode,
+  cohort,
+  searchTerm,
+  llm,
+  highlightCutoff,
+  onOutput,
+  topic,
+  observe,
+  observations,
+  onObserved,
+}: VideoCardProps) {
   const { metrics } = video;
   const outperforming = isOutperforming(metrics.performanceMultiple, highlightCutoff);
   const format = getVideoType(video.duration, video.liveStatus);
@@ -44,7 +68,25 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
   const [transcript, setTranscript] = useState('');
   const [showTranscript, setShowTranscript] = useState(false);
 
-  const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm, { transcript });
+  const analysisPrompt = () => buildSingleVideoPrompt(video, cohort, searchTerm, { transcript, topic, observations });
+  const observeItems = [{ videoId: video.id, title: video.title, durationSec: getVideoDurationInSeconds(video.duration) }];
+  // 복사·분석 두 경로가 같은 프롬프트를 쓰므로 보관도 같은 자리에서 한다.
+  const keepPrompt = () =>
+    onOutput?.({ kind: 'video-prompt', term: searchTerm, videoId: video.id, title: video.title, text: analysisPrompt() });
+  const keepAnalysis = (result: AnalysisResult) =>
+    onOutput?.({
+      kind: 'video-analysis',
+      term: searchTerm,
+      videoId: video.id,
+      title: video.title,
+      text: result.text,
+      llm: {
+        model: result.model,
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        estimatedCostUsd: result.estimatedCostUsd,
+      },
+    });
 
   const transcriptToggle = (
     <button
@@ -160,6 +202,9 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
               </span>
             )}
             <span title="좋아요 ÷ 조회수">좋아요율 {formatPercent(metrics.likeRate)}</span>
+            <span title="조회수 ÷ 구독자수 — 참고값. 구독자를 숨긴 채널은 측정불가, 1,000명 초과는 유효숫자 3자리 반올림">
+              구독자 대비 {formatMultiple(metrics.subscriberRatio)}
+            </span>
             {video.hasCaption && <span className="text-gray-500">자막 있음</span>}
           </div>
 
@@ -171,6 +216,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
               {transcriptToggle}
               <CopyButton
                 getText={analysisPrompt}
+                onCopied={keepPrompt}
                 label="AI분석 복사"
                 title="대조군을 포함한 분석 프롬프트를 복사합니다"
               />
@@ -181,6 +227,18 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
               <TranscriptField videoId={video.id} value={transcript} onChange={setTranscript} />
             </div>
           )}
+          {observe?.enabled && !isLive && onObserved && (
+            <div className="mt-3">
+              <ObserveButton
+                enabled={observe.enabled}
+                model={observe.model}
+                items={observeItems}
+                existing={observations ?? {}}
+                onObserved={onObserved}
+                label="이 영상 관찰"
+              />
+            </div>
+          )}
           {llm.enabled && (
             <div className="mt-3">
               <AnalyzeButton
@@ -189,6 +247,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
                 getPrompt={analysisPrompt}
                 thumbnailVideoIds={[video.id, ...cohort.bottom.filter((v) => v.id !== video.id).slice(0, 5).map((v) => v.id)]}
                 label="앱에서 이 영상 분석"
+                onResult={keepAnalysis}
               />
             </div>
           )}
@@ -245,6 +304,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
 
         <div className="flex justify-between text-xs text-gray-400 mb-2">
           <span>구독자 {formatSubscriberCount(video.channel.subscriberCount)}</span>
+          <span title="조회수 ÷ 구독자수 — 참고값">구독자 대비 {formatMultiple(metrics.subscriberRatio)}</span>
           <span title="좋아요 ÷ 조회수">좋아요율 {formatPercent(metrics.likeRate)}</span>
         </div>
 
@@ -255,6 +315,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
             {transcriptToggle}
             <CopyButton
               getText={analysisPrompt}
+              onCopied={keepPrompt}
               label="AI분석"
               title="대조군을 포함한 분석 프롬프트를 복사합니다"
             />
@@ -265,6 +326,18 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
             <TranscriptField videoId={video.id} value={transcript} onChange={setTranscript} />
           </div>
         )}
+        {observe?.enabled && !isLive && onObserved && (
+          <div className="mt-3">
+            <ObserveButton
+              enabled={observe.enabled}
+              model={observe.model}
+              items={observeItems}
+              existing={observations ?? {}}
+              onObserved={onObserved}
+              label="이 영상 관찰"
+            />
+          </div>
+        )}
         {llm.enabled && (
           <div className="mt-3">
             <AnalyzeButton
@@ -273,6 +346,7 @@ export default function VideoCard({ video, displayMode, cohort, searchTerm, llm,
               getPrompt={analysisPrompt}
               thumbnailVideoIds={[video.id, ...cohort.bottom.filter((v) => v.id !== video.id).slice(0, 5).map((v) => v.id)]}
               label="앱에서 분석"
+              onResult={keepAnalysis}
             />
           </div>
         )}

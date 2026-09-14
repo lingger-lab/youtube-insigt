@@ -9,10 +9,17 @@ YouTube 검색 결과를 **채널 평소 성과 대비 얼마나 터졌는지**(
 - **검색 깊이 선택**: 50 / 100 / 200 — 검색 버킷(하루 100회) 소비량을 UI에 표시
 - **성과배수**: 조회수 ÷ 같은 채널·같은 포맷(Shorts/롱폼) 최근 영상의 중앙값. 라이브·예정은 제외
 - **일평균 배수·좋아요율·댓글율** 병기. 계산 불가는 0이 아니라 '측정불가'
-- **대조군 프롬프트**: 성과배수 상위군/하위군을 표로 묶어 LLM에 붙여넣기 (지어내기 금지 규칙 포함)
+- **대조군 프롬프트**: 성과배수 상위군/하위군 + 상위 영상 vs 그 채널 평소 제목 대조 표를 LLM에 붙여넣기 (지어내기 금지 규칙 포함)
+- **시안 생성**: "내 주제"를 입력하면 프롬프트 끝에 클릭 트리거 → 제목·썸네일 세트 5개 → 구조 설계 → 매핑표 → 복사용 요약을
+  요청. 모든 문장에 `[행 n]`(데이터) / `[원칙 ID]`(앱이 든 플레이북, 출처·신뢰도 표기) / `[가정]` 중 하나를 달게 하고,
+  Test & Compare에 올릴 3안을 고르게 함. 시안의 좋고 나쁨은 앱이 판정하지 않음
 - **썸네일 컨택트시트**: 상위·하위군 썸네일을 `#번호` 격자 한 장으로 클립보드에 복사
 - **자막 붙여넣기**: 있을 때만 대본 구조 분석 요청
 - **앱 내 LLM 분석(선택)**: `ANTHROPIC_API_KEY`가 있을 때만 활성, 응답마다 토큰·추정 비용 표시
+- **영상 관찰(선택)**: `GEMINI_API_KEY`가 있으면 Gemini가 공개 영상을 직접 보고 첫 3초·첫 문장 인용·구조·썸네일 약속 이행을
+  기록. 프롬프트에 `[영상관찰 #n mm:ss]`로 실림(모델 관찰이지 API 데이터가 아님). 프리뷰 무료, 무료 티어 하루 8시간분
+- **보관함(`/history`)**: 검색 결과는 자동 저장되어 새로고침·재방문 시 할당량 없이 복원(`/?h=<id>`),
+  복사한 프롬프트와 LLM 분석 결과도 남음. **브라우저 localStorage에만** 저장 — 서버·다른 기기에는 없음
 - 카드형/리스트형 전환, Dark Mode, 모바일 드로어
 
 ## 🛠️ 기술 스택
@@ -56,6 +63,13 @@ YouTube 검색 결과를 **채널 평소 성과 대비 얼마나 터졌는지**(
    LLM_EFFORT=high                # 선택: low|medium|high|xhigh|max
    ```
 
+   **선택 — 영상 관찰.** AI Studio(aistudio.google.com)에서 무료 키를 만들어 넣으면 "영상 관찰 수집" 버튼이
+   활성화됩니다. 앱은 영상을 받지 않고 공개 URL만 Gemini에 넘깁니다.
+   ```
+   GEMINI_API_KEY=AIza...         # 없으면 기능 꺼짐. NEXT_PUBLIC_ 금지
+   GEMINI_MODEL=gemini-3.5-flash-lite  # 선택, 기본값 (3.8 Flash와 실측 품질 동일·3~4배 빠름·45% 비용)
+   ```
+
 4. **개발 서버 실행**
    ```bash
    npm run dev
@@ -86,33 +100,41 @@ src/
       search.ts            # 검색 → 영상 통계 → 채널 통계 + 채널당 최근 업로드 50편
       thumbnail.ts         # i.ytimg.com 수신 (프록시·LLM 첨부 공용)
     llm/analyze.ts         # 앱 내 LLM 분석 (@anthropic-ai/sdk, 선택 기능)
+    llm/observe.ts         # 영상 관찰 (@google/genai, 선택 기능)
     rateLimit.ts           # 인메모리 레이트리밋 (IP당 10분 검색 10회 / LLM 3회)
   app/
     api/
       search/route.ts      # 검색 프록시 (POST)
       thumbnail/route.ts   # 썸네일 프록시 (CORS 우회)
       analyze/route.ts     # 앱 내 LLM 분석 (GET 상태 / POST)
+      observe/route.ts     # 영상 관찰 (GET 상태 / POST 1편)
     components/
       VideoCard.tsx        # 카드: 성과배수·일평균 배수·LIVE 배지·자막·AI분석
       SearchDepthPicker.tsx  # 검색 깊이 + 검색 버킷 소비 표시
       ThumbnailSheetButton.tsx # 썸네일 컨택트시트 복사
       TranscriptField.tsx  # 자막 붙여넣기
       AnalyzeButton.tsx    # 앱 내 LLM 분석 + 결과 패널
+      ObserveButton.tsx    # 영상 관찰 수집 + 진행·비용
       CopyButton.tsx       # 클립보드 텍스트 복사 + aria-live
       Header / Sidebar / Filters / SearchInput / SortBar / DisplayModeToggle
     utils/
       metrics.ts           # 파생 지표 (성과배수·일평균 배수·기준선 출처)
-      analysisPrompt.ts    # 대조군 포함 프롬프트
+      analysisPrompt.ts    # 관찰 → 플레이북 → 시안 프롬프트
+      playbook.ts          # 시안용 범용 원칙 (ID·신뢰도·출처)
       contactSheet.ts      # 썸네일 격자 합성 + 클립보드 이미지
       quota.ts             # 할당량 산수
       helpers.ts           # 포맷터 + 강조 컷오프
       videoUtils.ts        # 길이 파싱 / Shorts·롱폼·라이브 판별
       llmClient.ts         # /api/analyze 호출
+      observeClient.ts     # /api/observe 호출 (병렬 3)
       youtubeApi.ts        # /api/search 호출 + 타입 재수출
+      history.ts           # 브라우저 보관함 (검색 이력 + 출력)
+    history/page.tsx       # 보관함 화면
     page.tsx               # 메인 페이지
 scripts/
   measure.ts               # 실측 1차 (npm run measure)
   measure-isolate.ts       # 실측 2차 (효과 분리)
+  scenario.ts              # 키워드 1개 절차·결과 출력 (원본 measure-out/ 캐시)
 docs/
   ISSUES.md                # 미해결 이슈 · 검증 체크리스트 · 보류 설계
 ```
@@ -126,6 +148,7 @@ docs/
 3. "시장 분석 복사" + "썸네일 시트 복사" → LLM 입력창에 둘 다 붙여넣기
 4. 개별 영상은 "AI분석" (자막을 붙여넣으면 대본 구조까지)
 5. 카드 클릭 → YouTube 원본
+6. 사이드바 "보관함"에서 지난 검색을 다시 열거나(할당량 0) 복사했던 프롬프트·분석 결과를 다시 봄
 
 ## 🔥 성과배수
 

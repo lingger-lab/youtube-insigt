@@ -18,12 +18,12 @@ const siteUrl = 'https://youtube-insigt.vercel.app';
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: "Youtube InSigt - YouTube 영상 분석 도구",
-  description: "YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독자수 기반의 Viral Score(떡상지수)를 분석하는 통합 분석 웹앱",
-  keywords: ["YouTube", "영상 분석", "떡상지수", "Viral Score", "YouTube API", "콘텐츠 분석"],
+  description: "YouTube 검색 결과를 채널 평소 성과 대비 얼마나 터졌는지(성과배수)로 정렬하고, 상위군·하위군 대조 프롬프트를 만들어 LLM에 붙여넣는 분석 도구",
+  keywords: ["YouTube", "영상 분석", "성과배수", "YouTube API", "콘텐츠 분석", "LLM 프롬프트"],
   authors: [{ name: "lingger-lab" }],
   openGraph: {
     title: "Youtube InSigt - YouTube 영상 분석 도구",
-    description: "YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독자수 기반의 Viral Score(떡상지수)를 분석하는 통합 분석 웹앱",
+    description: "YouTube 검색 결과를 채널 평소 성과 대비 얼마나 터졌는지(성과배수)로 정렬하고, 상위군·하위군 대조 프롬프트를 만들어 LLM에 붙여넣는 분석 도구",
     type: "website",
     locale: "ko_KR",
     siteName: "Youtube InSigt",
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Youtube InSigt - YouTube 영상 분석 도구",
-    description: "YouTube 검색을 API 네이티브 수준에서 제어하고, 조회수/구독자수 기반의 Viral Score(떡상지수)를 분석하는 통합 분석 웹앱",
+    description: "YouTube 검색 결과를 채널 평소 성과 대비 얼마나 터졌는지(성과배수)로 정렬하고, 상위군·하위군 대조 프롬프트를 만들어 LLM에 붙여넣는 분석 도구",
     images: [new URL('/opengraph-image', siteUrl).toString()],
   },
   alternates: {
