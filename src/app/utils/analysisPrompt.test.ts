@@ -547,6 +547,26 @@ describe('영상 관찰 절 — Gemini가 본 결과를 [영상관찰] 태그로
     assert.ok(p.includes('음성 불명확'));
   });
 
+  // 실측(2026-09-14): 20편 관찰 표가 프롬프트의 47%, 구조 열이 행의 절반 → 시장용은 압축
+  test('시장 프롬프트는 압축형: 구조는 "N블록: 처음 → 끝", 긴 칸은 60자 절단, 행 길이 상한', () => {
+    const long = observation(cohort.top[0].id);
+    long.structure = Array.from({ length: 8 }, (_, i) => ({ start: `00:0${i}`, end: `00:0${i + 1}`, purpose: `아주 긴 구간 목적 설명 ${i} `.repeat(4), device: '장치' }));
+    long.notes = ['a'.repeat(200)];
+    const p = buildMarketAnalysisPrompt('키워드', cohort, { observations: { ...all, [long.videoId]: long } });
+    assert.ok(p.includes('8블록: '));
+    assert.ok(!p.includes('00:00-00:01 아주 긴'), '전체 타임라인은 시장용에 싣지 않는다');
+    const row = p.split('\n').find((l) => l.startsWith('| 1 | ')) ?? '';
+    assert.ok(row.length < 420, `행 길이 ${row.length}`);
+    assert.ok(p.includes('60자에서 잘랐고'));
+  });
+
+  test('단건 프롬프트는 전체 타임라인을 싣는다', () => {
+    const v = cohort.top[0];
+    const p = buildSingleVideoPrompt(v, cohort, '키워드', { observations: { [v.id]: observation(v.id) } });
+    assert.ok(p.includes('00:00-00:03 결과 먼저(클로즈업)'));
+    assert.ok(!p.includes('블록: '));
+  });
+
   test('단건 프롬프트에도 대상 영상의 관찰이 실린다', () => {
     const v = cohort.top[0];
     const p = buildSingleVideoPrompt(v, cohort, '키워드', { observations: { [v.id]: observation(v.id) } });

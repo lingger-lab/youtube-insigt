@@ -300,13 +300,40 @@ function quoteLabel(o: VideoObservation): string {
   return o.hook.firstLine ? `"${cell(o.hook.firstLine.quote)}" @${o.hook.firstLine.at}` : '(발화 없음)';
 }
 
+/** 시장 프롬프트용 절단. 실측(2026-09-14): 관찰 표가 프롬프트의 47%였고 "구조 블록" 열이 행의 절반이었다. */
+const COMPACT_CELL = 60;
+function clip(text: string, max: number = COMPACT_CELL): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** "8블록: 간장 닭날개 구이 → 기타 요리 소개" — 시장 비교에는 블록 수와 처음·끝 목적이면 충분하다. 전체 타임라인은 단건 프롬프트에. */
+function structureSummary(o: VideoObservation): string {
+  if (o.structure.length === 0) return '없음';
+  const first = o.structure[0];
+  const last = o.structure[o.structure.length - 1];
+  const body = o.structure.length === 1 ? clip(first.purpose, 40) : `${clip(first.purpose, 28)} → ${clip(last.purpose, 28)}`;
+  return `${o.structure.length}블록: ${body}`;
+}
+
+function structureFull(o: VideoObservation): string {
+  return o.structure.map((b) => `${b.start}-${b.end} ${b.purpose}${b.device ? `(${b.device})` : ''}`).join('; ') || '없음';
+}
+
 /**
  * 영상 관찰 표. 관찰은 모델(Gemini)이 영상을 보고 적은 것이지 API 데이터가 아니다 —
  * 표 위에 그 사실을 적고, 인용 태그를 [행 n]과 다르게 둔다. 관찰이 하나도 없으면 절 자체가 없다.
+ * mode 'compact'(시장, 20행)는 긴 칸을 60자에서 자르고 구조는 요약한다. 'full'(단건)은 전부 싣는다.
  */
-function observationSection(videos: VideoWithMetrics[], startIndex: number, observations: Record<string, VideoObservation> | undefined): string {
+function observationSection(
+  videos: VideoWithMetrics[],
+  startIndex: number,
+  observations: Record<string, VideoObservation> | undefined,
+  mode: 'compact' | 'full' = 'full',
+): string {
   const coverage = coverageOf(videos, observations);
   if (!observations || coverage.observed === 0) return '';
+  const compact = mode === 'compact';
+  const c = (text: string) => cell(compact ? clip(text) : text);
 
   const rows = videos
     .map((v, i) => {
@@ -315,18 +342,19 @@ function observationSection(videos: VideoWithMetrics[], startIndex: number, obse
       const first3 = [o.hook.first3s.visual, o.hook.first3s.spoken ? `말: ${o.hook.first3s.spoken}` : null, o.hook.first3s.onScreenText ? `자막: ${o.hook.first3s.onScreenText}` : null]
         .filter(Boolean)
         .join(' / ');
-      const structure = o.structure.map((b) => `${b.start}-${b.end} ${b.purpose}${b.device ? `(${b.device})` : ''}`).join('; ');
-      const interrupts = o.patternInterrupts.length ? o.patternInterrupts.map((p) => `${p.at} ${p.kind}`).join(', ') : '없음';
-      const notes = o.notes.length ? cell(o.notes.join(' / ')) : '';
-      return `| ${startIndex + i} | ${cell(first3)} | ${quoteLabel(o)} | ${o.hook.promiseStatedAt ?? 'null'} | ${o.thumbnailPromise.kept} — ${cell(o.thumbnailPromise.evidence)} | ${cell(structure) || '없음'} | ${cell(interrupts)} | ${o.faceOnCamera} | ${o.textOverlay} | ${o.cta.present ? `있음 ${o.cta.at ?? ''}` : '없음'} | ${notes} |`;
+      const structure = compact ? structureSummary(o) : structureFull(o);
+      const interrupts = o.patternInterrupts.length ? `${o.patternInterrupts.length}회 ${o.patternInterrupts.map((p) => `${p.at} ${p.kind}`).join(', ')}` : '없음';
+      const notes = o.notes.length ? c(o.notes.join(' / ')) : '';
+      const misc = `얼굴 ${o.faceOnCamera} · 자막 ${o.textOverlay} · CTA ${o.cta.present ? (o.cta.at ?? '있음') : '없음'}`;
+      return `| ${startIndex + i} | ${c(first3)} | ${quoteLabel(o)} | ${o.hook.promiseStatedAt ?? 'null'} | ${o.thumbnailPromise.kept} — ${c(o.thumbnailPromise.evidence)} | ${cell(structure)} | ${c(interrupts)} | ${misc} | ${notes} |`;
     })
     .filter((r): r is string => r !== null);
 
   const missing = coverage.total - coverage.observed;
   return `## 영상 관찰 (Gemini가 영상을 직접 본 결과 — **모델 관찰이지 API 데이터가 아님**. 인용은 원문, 시각은 MM:SS. 인용 태그: [영상관찰 #n mm:ss])
-${coverage.observed}/${coverage.total} 관찰됨${missing > 0 ? ` — 나머지 ${missing}편은 미수집(표에 없음, 추측 금지)` : ''}. 관찰자는 평가하지 않았다. 판단은 이 답변의 몫이다.
-| # | 첫 3초 (화면 / 말 / 자막) | 첫 문장 인용 | 약속 확인 시점 | 썸네일 약속 이행 | 구조 블록 | 패턴 인터럽트 | 얼굴 | 자막 밀도 | CTA | 관찰자 메모(못 본 것) |
-|---|---|---|---|---|---|---|---|---|---|---|
+${coverage.observed}/${coverage.total} 관찰됨${missing > 0 ? ` — 나머지 ${missing}편은 미수집(표에 없음, 추측 금지)` : ''}. 관찰자는 평가하지 않았다. 판단은 이 답변의 몫이다.${compact ? ' 긴 칸은 60자에서 잘랐고 구조는 블록 수와 처음·끝 목적만 실었다(전체는 단건 프롬프트).' : ''}
+| # | 첫 3초 (화면 / 말 / 자막) | 첫 문장 인용 | 약속 확인 시점 | 썸네일 약속 이행 | 구조 | 패턴 인터럽트 | 얼굴 · 자막 밀도 · CTA | 관찰자 메모(못 본 것) |
+|---|---|---|---|---|---|---|---|---|
 ${rows.join('\n')}
 `;
 }
@@ -429,7 +457,7 @@ ${TABLE_LEGEND}
 
 ${channelContrastSection(top, 1)}
 
-${observationSection([...top, ...bottom], 1, options.observations)}
+${observationSection([...top, ...bottom], 1, options.observations, 'compact')}
 ${dataLimits(false, coverageOf([...top, ...bottom], options.observations))}
 ${thumbnailSection(top, '상위군', 1)}${thumbnailSection(bottom, '하위군', bottomStart)}
 ## 요청
@@ -496,7 +524,7 @@ ${TABLE_LEGEND}
 
 ${contrastSection}
 
-${observationSection([video], 0, options.observations).replace('| 0 |', '| 대상 |')}
+${observationSection([video], 0, options.observations, 'full').replace('| 0 |', '| 대상 |')}
 ${dataLimits(hasTranscript, coverageOf([video], options.observations))}
 ${thumbnailSection([video], '대상 영상', 1)}
 ${hasTranscript ? transcriptSection(options.transcript as string) : ''}
