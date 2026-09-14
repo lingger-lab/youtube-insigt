@@ -28,12 +28,12 @@
 | 타임아웃 | 긴 처리는 `stream:true` 또는 `background:true` 권장(동기 요청은 401/타임아웃 가능) | video-understanding |
 | YouTube 정책 | 앱은 URL만 넘기고 영상을 받지 않음 → III.E.1(다운로드·캐시 금지) 비해당. 비문서 API(III.D.7) 미사용 | developer-policies |
 
-### 키 없이는 못 잰 것 (스파이크로 확인)
-1. **실제 지연**: 30초 Shorts / 10분 롱폼 1편당 몇 초인가 — Vercel 60초 안에 드는가
-2. **Shorts URL**: `youtube.com/shorts/ID`가 아니라 `watch?v=ID`로 넘겨도 되는가 (문서는 watch 형식만 예시)
-3. **관찰 품질**: 첫 문장을 **원문 그대로** 인용하는가, 타임스탬프가 맞는가, 한국어 음성 인식 정확도
-4. **무료 티어 RPM**: 병렬 3이 429를 내는가
-5. **라이브 아카이브·연령제한·비공개** 영상의 오류 형태
+### 키 없이는 못 잰 것 — 2026-09-14 실측 결과
+1. ~~실제 지연~~ **static: Shorts 3.3~15.7s, 15분 롱폼 9.6s(Lite)·** agentic은 110s(3.8 Flash) → static만 쓴다
+2. ~~Shorts URL~~ `watch?v=ID`로 됨
+3. ~~관찰 품질~~ 첫 문장 인용이 두 모델 동일 + **실영상 육안 대조 일치**. 단 **agentic(Lite)은 날조**(F41) → 영상 토큰 0 방어
+4. 무료 티어 RPM/RPD: 11요청까지 429 없음. 정확한 한도는 미확인
+5. 존재하지 않는 ID → 400 `invalid_request`. 비공개·연령제한·라이브는 미확인
 
 → `scripts/gemini-spike.ts` (REST, 의존성 0). `GEMINI_API_KEY`(AI Studio 무료 키)만 있으면 실행.
 
