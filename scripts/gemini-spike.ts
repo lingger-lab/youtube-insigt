@@ -17,6 +17,8 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 const KEY = process.env.GEMINI_API_KEY;
 const MODEL = process.env.GEMINI_MODEL ?? 'gemini-3.8-flash';
 const PROCESSING = process.env.GEMINI_PROCESSING ?? 'static';
+/** GEMINI_BATCH=1 이면 모든 영상을 한 요청에 묶어 보낸다 (문서: 요청당 최대 10편). 무료 RPD≈20 대응 실험. */
+const BATCH = process.env.GEMINI_BATCH === '1';
 const ids = process.argv.slice(2);
 
 if (!KEY) {
@@ -158,7 +160,70 @@ async function observe(videoId: string): Promise<Result> {
   return { videoId, url, ok: true, status: res.status, elapsedMs, usage: json.usage, parsed, schemaOk, rawText: schemaOk ? undefined : out.slice(0, 600) };
 }
 
+async function observeBatch(videoIds: string[]): Promise<Result> {
+  const batchSchema = {
+    type: 'object',
+    properties: {
+      observations: {
+        type: 'array',
+        items: { type: 'object', properties: { videoId: { type: 'string' }, ...schema.properties }, required: ['videoId', ...schema.required] },
+      },
+    },
+    required: ['observations'],
+  };
+  const body = {
+    model: MODEL,
+    store: false,
+    input: [
+      ...videoIds.map((id) => ({ type: 'video', uri: `https://www.youtube.com/watch?v=${id}`, processing: PROCESSING })),
+      {
+        type: 'text',
+        text: `${INSTRUCTION.replace('{TITLE}', '(제목 미제공)')}
+영상 ${videoIds.length}편이 첨부 순서대로 있다. 각 영상마다 observations 배열에 한 항목씩, videoId는 순서대로 ${videoIds.join(', ')} 이다.`,
+      },
+    ],
+    response_format: { type: 'text', mime_type: 'application/json', schema: batchSchema },
+    generation_config: { thinking_level: 'low' },
+  };
+  const t0 = Date.now();
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+    method: 'POST',
+    headers: { 'x-goog-api-key': KEY as string, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(180_000),
+  });
+  const elapsedMs = Date.now() - t0;
+  const text = await res.text();
+  if (!res.ok) return { videoId: videoIds.join('+'), url: '', ok: false, status: res.status, elapsedMs, error: text.slice(0, 600) };
+  const json = JSON.parse(text) as { usage?: Record<string, unknown>; steps?: Array<{ type: string; content?: Array<{ type: string; text?: string }> }> };
+  const out = json.steps?.find((s) => s.type === 'model_output')?.content?.find((c) => c.type === 'text')?.text ?? '';
+  let parsed: unknown;
+  let schemaOk = false;
+  try {
+    parsed = JSON.parse(out);
+    const arr = (parsed as { observations?: unknown[] }).observations;
+    schemaOk = Array.isArray(arr) && arr.length === videoIds.length;
+  } catch {
+    parsed = undefined;
+  }
+  return { videoId: videoIds.join('+'), url: '', ok: true, status: res.status, elapsedMs, usage: json.usage, parsed, schemaOk, rawText: schemaOk ? undefined : out.slice(0, 600) };
+}
+
 const results: Result[] = [];
+if (BATCH) {
+  console.log(`모델 ${MODEL} · 모드 ${PROCESSING} · ${ids.length}편 묶음 1요청`);
+  const r = await observeBatch(ids);
+  results.push(r);
+  console.log(`${r.ok ? 'OK ' : 'ERR'} ${r.videoId} ${r.elapsedMs}ms status=${r.status} schema=${r.schemaOk ?? '-'} usage=${JSON.stringify(r.usage ?? {})}`);
+  if (r.error) console.log(`     ${r.error.slice(0, 300)}`);
+  if (r.rawText) console.log(`     raw: ${r.rawText.slice(0, 300)}`);
+  const obs = ((r.parsed as { observations?: Array<{ videoId: string; hook?: { firstLine?: { quote: string; at: string } | null } }> })?.observations) ?? [];
+  for (const o of obs) console.log(`     ${o.videoId}: 첫 문장 ${o.hook?.firstLine ? `"${o.hook.firstLine.quote}" @${o.hook.firstLine.at}` : 'null'}`);
+  mkdirSync('measure-out', { recursive: true });
+  const file = `measure-out/gemini-spike-batch-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  writeFileSync(file, JSON.stringify({ model: MODEL, processing: PROCESSING, batch: true, results }, null, 2));
+  console.log(`원본 → ${file}`);
+} else {
 console.log(`모델 ${MODEL} · 모드 ${PROCESSING} · ${ids.length}편 순차 실행\n`);
 for (const id of ids) {
   const r = await observe(id);
@@ -180,3 +245,4 @@ mkdirSync('measure-out', { recursive: true });
 const file = `measure-out/gemini-spike-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
 writeFileSync(file, JSON.stringify({ model: MODEL, processing: PROCESSING, results }, null, 2));
 console.log(`원본 → ${file}`);
+}

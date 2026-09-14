@@ -102,6 +102,15 @@ describe('buildObserveRequest — 우리가 보내는 모양을 고정한다', (
   test('영상이 먼저, 텍스트가 뒤에 온다 (문서: 단일 영상은 프롬프트를 영상 뒤에)', () => {
     assert.equal(req.input[0].type, 'video');
     assert.equal(req.input[1].type, 'text');
+    assert.ok((req.input[1] as { text: string }).text.includes('썸네일 이미지는 첨부되지 않았다'));
+  });
+
+  // 스파이크(2026-09-14): 썸네일 없이 보내면 모델이 thumbnailPromise를 "정보 없음 → unknown"으로 냈다.
+  test('썸네일이 있으면 영상 → 이미지(low) → 텍스트 순서로 첨부하고 지시문에 그 사실을 적는다', () => {
+    const withThumb = buildObserveRequest(INPUT, 'gemini-3.8-flash', { data: 'AAAA', mimeType: 'image/jpeg' });
+    assert.deepEqual(withThumb.input.map((c) => c.type), ['video', 'image', 'text']);
+    assert.deepEqual(withThumb.input[1], { type: 'image', data: 'AAAA', mime_type: 'image/jpeg', resolution: 'low' });
+    assert.ok((withThumb.input[2] as { text: string }).text.includes('첨부된 이미지는 이 영상의 썸네일'));
   });
 
   test('지시문은 관찰만 허용하고 평가·추천을 금지하며 제목을 싣는다', () => {
@@ -189,7 +198,7 @@ describe('observeVideo — 경계(create)를 주입해 파이프라인을 검사
       output_text: JSON.stringify(payload()),
       usage: { total_input_tokens: 4_000, total_output_tokens: 800 },
     };
-    const obs = await observeVideo(INPUT, async () => res);
+    const obs = await observeVideo(INPUT, async () => res, async () => null);
     assert.equal(obs.videoId, 'dQw4w9WgXcQ');
     assert.equal(obs.model, 'gemini-3.8-flash');
     assert.equal(obs.processing, 'static');
@@ -205,35 +214,56 @@ describe('observeVideo — 경계(create)를 주입해 파이프라인을 검사
       steps: [{ type: 'thought' }, { type: 'model_output', content: [{ type: 'text', text: JSON.stringify(payload()) }] }],
       usage: { total_input_tokens: 1, total_output_tokens: 1 },
     };
-    const obs = await observeVideo(INPUT, async () => res);
+    const obs = await observeVideo(INPUT, async () => res, async () => null);
     assert.equal(obs.language, 'ko');
     assert.equal(obs.model, DEFAULT_OBSERVE_MODEL, '응답에 모델이 없으면 요청 모델');
   });
 
   test('폴백 등으로 다른 모델이 응답하면 그 모델과 그 가격으로 계산한다', async () => {
     const res: ObserveResponse = { model: 'gemini-3.5-flash-lite', output_text: JSON.stringify(payload()), usage: { total_input_tokens: 1_000_000, total_output_tokens: 0 } };
-    const obs = await observeVideo(INPUT, async () => res);
+    const obs = await observeVideo(INPUT, async () => res, async () => null);
     assert.equal(obs.model, 'gemini-3.5-flash-lite');
     assert.equal(obs.usage.estimatedCostUsd, 0.3);
   });
 
   test('스키마에 안 맞는 응답은 조용히 넘기지 않고 OBSERVE_MALFORMED로 던진다', async () => {
     await assert.rejects(
-      () => observeVideo(INPUT, async () => ({ output_text: '{"hook":{}}' })),
+      () => observeVideo(INPUT, async () => ({ output_text: '{"hook":{}}' }), async () => null),
       (e: unknown) => e instanceof ObserveError && e.code === 'OBSERVE_MALFORMED',
     );
   });
 
   test('SDK 오류는 분류되어 나간다', async () => {
     await assert.rejects(
-      () => observeVideo(INPUT, async () => { throw new ApiError({ message: 'quota', status: 429 }); }),
+      () => observeVideo(INPUT, async () => { throw new ApiError({ message: 'quota', status: 429 }); }, async () => null),
       (e: unknown) => e instanceof ObserveError && e.code === 'OBSERVE_RATE_LIMITED',
     );
   });
 
   test('5분 이상 영상은 agentic으로 보낸다', async () => {
     let sent: unknown;
-    await observeVideo({ ...INPUT, durationSec: 900 }, async (req) => { sent = req; return { output_text: JSON.stringify(payload()) }; });
+    await observeVideo({ ...INPUT, durationSec: 900 }, async (req) => { sent = req; return { output_text: JSON.stringify(payload()) }; }, async () => null);
     assert.equal((sent as { input: Array<{ processing?: string }> }).input[0].processing, 'agentic');
+  });
+
+  test('썸네일을 받아 이미지로 첨부한다', async () => {
+    let sent: { input: Array<{ type: string }> } | undefined;
+    await observeVideo(
+      INPUT,
+      async (req) => { sent = req; return { output_text: JSON.stringify(payload()) }; },
+      async () => ({ data: 'QUJD', mimeType: 'image/jpeg' }),
+    );
+    assert.deepEqual(sent?.input.map((c) => c.type), ['video', 'image', 'text']);
+  });
+
+  test('썸네일 수신이 실패해도 관찰은 진행한다 (이미지 없이, 지시문에 미첨부 명시)', async () => {
+    let sent: { input: Array<{ type: string; text?: string }> } | undefined;
+    const obs = await observeVideo(
+      INPUT,
+      async (req) => { sent = req; return { output_text: JSON.stringify(payload()) }; },
+      async () => { throw new Error('i.ytimg.com down'); },
+    );
+    assert.equal(obs.videoId, INPUT.videoId);
+    assert.deepEqual(sent?.input.map((c) => c.type), ['video', 'text']);
   });
 });

@@ -326,6 +326,18 @@ export default function VideoCard({
             <TranscriptField videoId={video.id} value={transcript} onChange={setTranscript} />
           </div>
         )}
+        {observe?.enabled && !isLive && onObserved && (
+          <div className="mt-3">
+            <ObserveButton
+              enabled={observe.enabled}
+              model={observe.model}
+              items={observeItems}
+              existing={observations ?? {}}
+              onObserved={onObserved}
+              label="이 영상 관찰"
+            />
+          </div>
+        )}
         {llm.enabled && (
           <div className="mt-3">
             <AnalyzeButton

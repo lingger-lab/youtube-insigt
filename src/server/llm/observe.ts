@@ -1,6 +1,7 @@
 import { GoogleGenAI, ApiError } from '@google/genai';
 import { z } from 'zod';
 import type { ObservationPayload, VideoObservation } from '../../types/observation.ts';
+import { fetchThumbnail } from '../youtube/thumbnail.ts';
 
 /**
  * 영상 관찰 (선택 기능, 기본 꺼짐) — Gemini API에 공개 YouTube URL을 넘겨 영상을 직접 보게 한다.
@@ -189,9 +190,16 @@ export const OBSERVER_INSTRUCTION = `당신은 영상을 본 그대로만 기록
 - 화면에 보이거나 소리로 들리는 것만 적는다. 모르면 null 또는 "unknown".
 - 인용(quote)은 실제로 말한 문장을 원문 그대로, 25단어 이내. 없으면 null.
 - 모든 시각은 MM:SS. 시각 없는 관찰은 적지 않는다.
-- thumbnailPromise: 제목이 약속한 것이 본편에서 실제로 보이는지. evidence에 시각을 적는다.
+- thumbnailPromise: 제목과 (첨부됐다면) 썸네일 이미지가 약속한 것이 본편에서 실제로 보이는지. evidence에 시각을 적는다. 썸네일이 첨부되지 않았으면 제목만 기준으로 하고 그 사실을 evidence에 적는다.
 - structure: 최대 8블록. purpose는 "무엇을 하는 구간인지"만(좋다/나쁘다 금지).
 - notes: 못 본 것, 불확실한 것, 음성이 안 들리는 구간 등을 숨기지 말고 적는다.`;
+
+/** 첨부할 썸네일. 스파이크에서 모델이 "썸네일 정보가 없다"며 약속 이행을 unknown으로 냈다 — 이미지를 같이 준다. */
+export interface ObserveThumbnail {
+  /** base64 */
+  data: string;
+  mimeType: 'image/jpeg' | 'image/png';
+}
 
 /** 요청 본문 — SDK 타입을 그대로 쓰지 않고 우리가 보내는 모양을 고정한다 (테스트가 검사). */
 export interface ObserveRequest {
@@ -199,20 +207,26 @@ export interface ObserveRequest {
   store: false;
   input: Array<
     | { type: 'video'; uri: string; processing: 'static' | 'agentic' }
+    | { type: 'image'; data: string; mime_type: string; resolution: 'low' }
     | { type: 'text'; text: string }
   >;
   response_format: { type: 'text'; mime_type: 'application/json'; schema: typeof OBSERVATION_JSON_SCHEMA };
   generation_config: { thinking_level: 'low' };
 }
 
-/** 순수 함수. YouTube URL은 watch 형식으로 통일한다 (Shorts도 같은 ID로 열린다). */
-export function buildObserveRequest(input: ObserveInput, model: string): ObserveRequest {
+/**
+ * 순수 함수. YouTube URL은 watch 형식으로 통일한다 (Shorts도 같은 ID로 열린다 — 스파이크로 확인).
+ * 순서: 영상 → 썸네일(있으면, low 해상도 ≈280토큰) → 텍스트 (문서: 단일 영상은 프롬프트를 뒤에).
+ */
+export function buildObserveRequest(input: ObserveInput, model: string, thumbnail: ObserveThumbnail | null = null): ObserveRequest {
+  const attached = thumbnail ? '첨부된 이미지는 이 영상의 썸네일이다.' : '썸네일 이미지는 첨부되지 않았다.';
   return {
     model,
     store: false,
     input: [
       { type: 'video', uri: `https://www.youtube.com/watch?v=${input.videoId}`, processing: processingModeFor(input.durationSec) },
-      { type: 'text', text: `${OBSERVER_INSTRUCTION}\n제목: "${input.title.replace(/"/g, "'")}"` },
+      ...(thumbnail ? [{ type: 'image' as const, data: thumbnail.data, mime_type: thumbnail.mimeType, resolution: 'low' as const }] : []),
+      { type: 'text', text: `${OBSERVER_INSTRUCTION}\n${attached}\n제목: "${input.title.replace(/"/g, "'")}"` },
     ],
     response_format: { type: 'text', mime_type: 'application/json', schema: OBSERVATION_JSON_SCHEMA },
     generation_config: { thinking_level: 'low' },
@@ -261,6 +275,14 @@ export interface ObserveResponse {
 }
 
 export type ObserveCreate = (request: ObserveRequest) => Promise<ObserveResponse>;
+export type ObserveThumbnailFetch = (videoId: string) => Promise<ObserveThumbnail | null>;
+
+/** hqdefault(480×360)면 충분하다 — low 해상도로 보내므로 maxres는 낭비. 실패해도 관찰은 진행한다(제목만 기준). */
+const defaultThumbnailFetch: ObserveThumbnailFetch = async (videoId) => {
+  const fetched = await fetchThumbnail(videoId, ['hqdefault', 'mqdefault']);
+  if (!fetched) return null;
+  return { data: Buffer.from(fetched.bytes).toString('base64'), mimeType: 'image/jpeg' };
+};
 
 /** 실제 SDK 호출. 테스트는 이 함수를 주입으로 대체한다. */
 const sdkCreate: ObserveCreate = async (request) => {
@@ -282,12 +304,18 @@ function outputTextOf(res: ObserveResponse): string {
  * 영상 1편 관찰. 키가 없으면 네트워크에 나가기 전에 던진다.
  * 반환값에는 usage·추정 비용·소요 시간이 항상 들어간다 (비용이 안 보이는 경로 금지).
  */
-export async function observeVideo(input: ObserveInput, create: ObserveCreate = sdkCreate): Promise<VideoObservation> {
+export async function observeVideo(
+  input: ObserveInput,
+  create: ObserveCreate = sdkCreate,
+  fetchThumb: ObserveThumbnailFetch = defaultThumbnailFetch,
+): Promise<VideoObservation> {
   if (!isObserveConfigured()) {
     throw new ObserveError('OBSERVE_NOT_CONFIGURED', 'GEMINI_API_KEY 미설정', 503);
   }
   const model = configuredObserveModel();
-  const request = buildObserveRequest(input, model);
+  // 썸네일을 못 받아도 관찰은 한다 — 단 요청 본문에 "미첨부"가 적혀 모델이 unknown으로 답할 근거가 남는다.
+  const thumbnail = await fetchThumb(input.videoId).catch(() => null);
+  const request = buildObserveRequest(input, model, thumbnail);
   const t0 = Date.now();
 
   let response: ObserveResponse;
