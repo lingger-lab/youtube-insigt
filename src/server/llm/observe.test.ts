@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { ApiError } from '@google/genai';
 import {
   DEFAULT_OBSERVE_MODEL,
-  AGENTIC_MIN_SEC,
+  MAX_OBSERVE_SEC,
+  videoTokensOf,
   isObserveConfigured,
   configuredObserveModel,
   processingModeFor,
@@ -80,11 +81,24 @@ describe('설정', () => {
 });
 
 describe('처리 모드', () => {
-  test('5분 미만은 static, 5분 이상은 agentic (문서 권고)', () => {
+  // 실측(F41): Flash-Lite agentic이 15분 한국어 영상을 영어 영상으로 날조(영상 토큰 0). 3.8 Flash agentic은 110초.
+  test('길이와 무관하게 항상 static', () => {
     assert.equal(processingModeFor(24), 'static');
-    assert.equal(processingModeFor(AGENTIC_MIN_SEC - 1), 'static');
-    assert.equal(processingModeFor(AGENTIC_MIN_SEC), 'agentic');
-    assert.equal(processingModeFor(15 * 60), 'agentic');
+    assert.equal(processingModeFor(15 * 60), 'static');
+    assert.equal(processingModeFor(29 * 60), 'static');
+  });
+});
+
+describe('videoTokensOf — 모델이 영상을 읽었다는 증거', () => {
+  test('static: input video 토큰', () => {
+    assert.equal(videoTokensOf({ input_tokens_by_modality: [{ modality: 'text', tokens: 207 }, { modality: 'video', tokens: 1630 }] }), 1630);
+  });
+  test('agentic: tool_use의 image/video 토큰', () => {
+    assert.equal(videoTokensOf({ tool_use_tokens_by_modality: [{ modality: 'text', tokens: 6376 }, { modality: 'image', tokens: 7854 }] }), 7854);
+  });
+  test('텍스트만 있으면 0 — 날조 사례의 usage 모양 그대로', () => {
+    assert.equal(videoTokensOf({ input_tokens_by_modality: [{ modality: 'text', tokens: 207 }], tool_use_tokens_by_modality: [{ modality: 'text', tokens: 1176 }] }), 0);
+    assert.equal(videoTokensOf(undefined), 0);
   });
 });
 
@@ -192,11 +206,39 @@ describe('observeVideo — 경계(create)를 주입해 파이프라인을 검사
     process.env.GEMINI_API_KEY = 'AIza-test';
   });
 
+  const withVideo = (extra: Partial<NonNullable<ObserveResponse['usage']>> = {}) => ({
+    total_input_tokens: 4_000,
+    total_output_tokens: 800,
+    input_tokens_by_modality: [{ modality: 'text', tokens: 1_000 }, { modality: 'video', tokens: 3_000 }],
+    ...extra,
+  });
+
+  test('영상 토큰이 0인 응답은 스키마가 맞아도 OBSERVE_NO_VIDEO_EVIDENCE로 버린다 (F41 날조 사례)', async () => {
+    const res: ObserveResponse = {
+      model: 'gemini-3.5-flash-lite',
+      output_text: JSON.stringify(payload()),
+      usage: { total_input_tokens: 207, total_output_tokens: 565, input_tokens_by_modality: [{ modality: 'text', tokens: 207 }], tool_use_tokens_by_modality: [{ modality: 'text', tokens: 1176 }] },
+    };
+    await assert.rejects(
+      () => observeVideo(INPUT, async () => res, async () => null),
+      (e: unknown) => e instanceof ObserveError && e.code === 'OBSERVE_NO_VIDEO_EVIDENCE',
+    );
+  });
+
+  test('30분을 넘는 영상은 네트워크 전에 OBSERVE_TOO_LONG(422)', async () => {
+    let called = false;
+    await assert.rejects(
+      () => observeVideo({ ...INPUT, durationSec: MAX_OBSERVE_SEC + 1 }, async () => { called = true; return {}; }, async () => null),
+      (e: unknown) => e instanceof ObserveError && e.code === 'OBSERVE_TOO_LONG' && e.httpStatus === 422,
+    );
+    assert.equal(called, false);
+  });
+
   test('output_text를 파싱해 videoId·모델·usage·비용·소요시간을 붙인다', async () => {
     const res: ObserveResponse = {
       model: 'gemini-3.8-flash',
       output_text: JSON.stringify(payload()),
-      usage: { total_input_tokens: 4_000, total_output_tokens: 800 },
+      usage: withVideo(),
     };
     const obs = await observeVideo(INPUT, async () => res, async () => null);
     assert.equal(obs.videoId, 'dQw4w9WgXcQ');
@@ -212,7 +254,7 @@ describe('observeVideo — 경계(create)를 주입해 파이프라인을 검사
   test('output_text가 없으면 steps의 model_output에서 읽는다', async () => {
     const res: ObserveResponse = {
       steps: [{ type: 'thought' }, { type: 'model_output', content: [{ type: 'text', text: JSON.stringify(payload()) }] }],
-      usage: { total_input_tokens: 1, total_output_tokens: 1 },
+      usage: withVideo({ total_input_tokens: 1, total_output_tokens: 1 }),
     };
     const obs = await observeVideo(INPUT, async () => res, async () => null);
     assert.equal(obs.language, 'ko');
@@ -220,7 +262,7 @@ describe('observeVideo — 경계(create)를 주입해 파이프라인을 검사
   });
 
   test('폴백 등으로 다른 모델이 응답하면 그 모델과 그 가격으로 계산한다', async () => {
-    const res: ObserveResponse = { model: 'gemini-3.5-flash-lite', output_text: JSON.stringify(payload()), usage: { total_input_tokens: 1_000_000, total_output_tokens: 0 } };
+    const res: ObserveResponse = { model: 'gemini-3.5-flash-lite', output_text: JSON.stringify(payload()), usage: withVideo({ total_input_tokens: 1_000_000, total_output_tokens: 0 }) };
     const obs = await observeVideo(INPUT, async () => res, async () => null);
     assert.equal(obs.model, 'gemini-3.5-flash-lite');
     assert.equal(obs.usage.estimatedCostUsd, 0.3);
@@ -228,7 +270,7 @@ describe('observeVideo — 경계(create)를 주입해 파이프라인을 검사
 
   test('스키마에 안 맞는 응답은 조용히 넘기지 않고 OBSERVE_MALFORMED로 던진다', async () => {
     await assert.rejects(
-      () => observeVideo(INPUT, async () => ({ output_text: '{"hook":{}}' }), async () => null),
+      () => observeVideo(INPUT, async () => ({ output_text: '{"hook":{}}', usage: withVideo() }), async () => null),
       (e: unknown) => e instanceof ObserveError && e.code === 'OBSERVE_MALFORMED',
     );
   });
@@ -240,17 +282,17 @@ describe('observeVideo — 경계(create)를 주입해 파이프라인을 검사
     );
   });
 
-  test('5분 이상 영상은 agentic으로 보낸다', async () => {
+  test('15분 영상도 static으로 보낸다', async () => {
     let sent: unknown;
-    await observeVideo({ ...INPUT, durationSec: 900 }, async (req) => { sent = req; return { output_text: JSON.stringify(payload()) }; }, async () => null);
-    assert.equal((sent as { input: Array<{ processing?: string }> }).input[0].processing, 'agentic');
+    await observeVideo({ ...INPUT, durationSec: 900 }, async (req) => { sent = req; return { output_text: JSON.stringify(payload()), usage: withVideo() }; }, async () => null);
+    assert.equal((sent as { input: Array<{ processing?: string }> }).input[0].processing, 'static');
   });
 
   test('썸네일을 받아 이미지로 첨부한다', async () => {
     let sent: { input: Array<{ type: string }> } | undefined;
     await observeVideo(
       INPUT,
-      async (req) => { sent = req; return { output_text: JSON.stringify(payload()) }; },
+      async (req) => { sent = req; return { output_text: JSON.stringify(payload()), usage: withVideo() }; },
       async () => ({ data: 'QUJD', mimeType: 'image/jpeg' }),
     );
     assert.deepEqual(sent?.input.map((c) => c.type), ['video', 'image', 'text']);
@@ -260,7 +302,7 @@ describe('observeVideo — 경계(create)를 주입해 파이프라인을 검사
     let sent: { input: Array<{ type: string; text?: string }> } | undefined;
     const obs = await observeVideo(
       INPUT,
-      async (req) => { sent = req; return { output_text: JSON.stringify(payload()) }; },
+      async (req) => { sent = req; return { output_text: JSON.stringify(payload()), usage: withVideo() }; },
       async () => { throw new Error('i.ytimg.com down'); },
     );
     assert.equal(obs.videoId, INPUT.videoId);

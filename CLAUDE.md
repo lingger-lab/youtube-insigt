@@ -123,7 +123,8 @@ src/server/                서버 전용. 키는 이 경계 밖으로 안 나간
   llm/analyze.ts           @anthropic-ai/sdk · claude-opus-5 · 스트리밍→finalMessage · refusal fallback
                            · 응답마다 usage + 추정 비용. 키 없으면 네트워크 전에 차단
   llm/observe.ts           @google/genai · gemini-3.8-flash · 공개 YouTube URL을 넘겨 영상을 직접 보게 함(관찰만,
-                           평가 금지) · JSON Schema + zod 재검증 · store:false · <5분 static / ≥5분 agentic
+                           평가 금지) · JSON Schema + zod 재검증 · store:false · **항상 static**(agentic은 날조 사례로
+                           금지, F41) · 영상 토큰 0이면 관찰 폐기(OBSERVE_NO_VIDEO_EVIDENCE) · 30분 상한 · 썸네일 첨부
                            · GEMINI_API_KEY 없으면 차단. 편당 1요청
   rateLimit.ts             인메모리 슬라이딩 윈도 (IP당 10분 검색 10회 / LLM 3회 / 관찰 30회). 인스턴스 단위
 src/app/api/
@@ -204,6 +205,8 @@ Vercel (`icn1`). 환경변수 `YT_API_KEY`(필수), `ANTHROPIC_API_KEY`(선택 �
 ## LLM 연동 규칙
 - 모델 ID는 `claude-opus-5` 그대로. 날짜 접미사를 붙이지 말 것. 바꾸려면 `LLM_MODEL` 환경변수
 - **영상 관찰(Gemini)은 관찰자다.** 본 것·들은 것만 JSON으로 적고 평가·추천은 하지 않는다. 판단은 Claude/외부 LLM.
+- **agentic 모드 금지, 영상 토큰 0이면 폐기.** 실측(F41): Flash-Lite agentic이 한국어 요리 영상을 영어 자연요법 영상으로
+  날조했고 스키마는 완벽했다. 스키마 검증은 날조를 못 잡는다 — `usage`의 video/image 토큰이 유일한 증거다.
   프롬프트에서 관찰은 `[영상관찰 #n mm:ss]` 태그로 `[행 n]`(API 사실)과 구분한다. 관찰은 보관함(30일)에 videoId로 캐시.
   앱은 영상을 받지 않는다(URL만 넘김). 설계·조사: docs/PLAN-영상관찰.md, docs/RESEARCH-없는것.md
 - 공식 SDK만 쓴다. raw fetch로 Messages API를 부르지 않는다

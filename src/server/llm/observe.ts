@@ -17,8 +17,14 @@ import { fetchThumbnail } from '../youtube/thumbnail.ts';
  */
 
 export const DEFAULT_OBSERVE_MODEL = 'gemini-3.8-flash';
-/** 문서 권고: 5분 미만 클립은 static, 그 이상은 agentic(필요한 구간만 로드, 최대 88% 절감) */
-export const AGENTIC_MIN_SEC = 300;
+/**
+ * 항상 static(1 FPS 전체 프레임). agentic은 쓰지 않는다 — 실측(2026-09-14, FINDINGS F41):
+ * Flash-Lite agentic은 15분 한국어 요리 영상을 영어 자연요법 영상으로 **날조**했고(영상 토큰 0),
+ * 3.8 Flash agentic은 정확했지만 110초(60초 상한 초과). static은 Lite 9.6초·정확.
+ */
+export const OBSERVE_PROCESSING = 'static' as const;
+/** static은 초당 ≈90~100토큰. 30분 ≈ 165K 토큰 — 무료 티어 TPM(비공식 250K)과 비용을 고려한 상한. */
+export const MAX_OBSERVE_SEC = 30 * 60;
 /** Vercel Hobby 함수 상한(60s) 안에서 끝내기 위한 상한 (ms) */
 const REQUEST_TIMEOUT_MS = 55_000;
 
@@ -43,7 +49,9 @@ export type ObserveErrorCode =
   | 'OBSERVE_RATE_LIMITED'
   | 'OBSERVE_TIMEOUT'
   | 'OBSERVE_UPSTREAM'
-  | 'OBSERVE_MALFORMED';
+  | 'OBSERVE_MALFORMED'
+  | 'OBSERVE_NO_VIDEO_EVIDENCE'
+  | 'OBSERVE_TOO_LONG';
 
 const USER_MESSAGE: Record<ObserveErrorCode, string> = {
   OBSERVE_NOT_CONFIGURED: '영상 관찰이 설정되지 않았습니다 (서버에 GEMINI_API_KEY 없음).',
@@ -54,6 +62,8 @@ const USER_MESSAGE: Record<ObserveErrorCode, string> = {
   OBSERVE_TIMEOUT: '관찰이 제한 시간(55초) 안에 끝나지 않았습니다. 긴 영상은 나중에 다시 시도해 주세요.',
   OBSERVE_UPSTREAM: 'Gemini 서비스가 응답하지 않습니다. 잠시 후 다시 시도해 주세요.',
   OBSERVE_MALFORMED: '관찰 결과가 정해진 형식이 아니어서 버렸습니다. 다시 시도해 주세요.',
+  OBSERVE_NO_VIDEO_EVIDENCE: '모델이 영상을 읽지 않고 답해 관찰을 버렸습니다 (영상 토큰 0). 다시 시도해 주세요.',
+  OBSERVE_TOO_LONG: '30분을 넘는 영상은 관찰하지 않습니다 (토큰·시간 상한).',
 };
 
 export class ObserveError extends Error {
@@ -78,8 +88,9 @@ export function configuredObserveModel(): string {
   return process.env.GEMINI_MODEL || DEFAULT_OBSERVE_MODEL;
 }
 
-export function processingModeFor(durationSec: number): 'static' | 'agentic' {
-  return durationSec >= AGENTIC_MIN_SEC ? 'agentic' : 'static';
+/** 길이와 무관하게 static. agentic을 되살리려면 F41의 날조 사례를 먼저 반박해야 한다. */
+export function processingModeFor(_durationSec: number): 'static' {
+  return OBSERVE_PROCESSING;
 }
 
 /** 순수 함수: 표시용 비용 추정. 프리뷰 동안은 실제 청구 0. */
@@ -266,12 +277,32 @@ export function classifyObserveError(error: unknown): ObserveError {
   return new ObserveError('OBSERVE_UPSTREAM', error instanceof Error ? error.message : String(error), 502);
 }
 
+interface ModalityTokens {
+  modality?: string;
+  tokens?: number;
+}
+
 /** 응답에서 우리가 쓰는 부분만. SDK 타입 전체에 결합하지 않는다. */
 export interface ObserveResponse {
   model?: string;
   output_text?: string;
   steps?: Array<{ type: string; content?: Array<{ type: string; text?: string }> }>;
-  usage?: { total_input_tokens?: number; total_output_tokens?: number };
+  usage?: {
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    input_tokens_by_modality?: ModalityTokens[];
+    tool_use_tokens_by_modality?: ModalityTokens[];
+  };
+}
+
+/**
+ * 모델이 실제로 영상을 읽었는가. static이면 입력 video 토큰, agentic이면 tool_use의 image/video 토큰이 있어야 한다.
+ * 실측(F41)에서 영상 토큰 0인 응답이 스키마를 완벽히 지킨 채 날조된 관찰을 돌려줬다 — 스키마 검증으로는 못 잡는다.
+ */
+export function videoTokensOf(usage: ObserveResponse['usage']): number {
+  const sum = (list: ModalityTokens[] | undefined, kinds: string[]) =>
+    (list ?? []).filter((m) => kinds.includes((m.modality ?? '').toLowerCase())).reduce((acc, m) => acc + (m.tokens ?? 0), 0);
+  return sum(usage?.input_tokens_by_modality, ['video']) + sum(usage?.tool_use_tokens_by_modality, ['video', 'image']);
 }
 
 export type ObserveCreate = (request: ObserveRequest) => Promise<ObserveResponse>;
@@ -312,6 +343,9 @@ export async function observeVideo(
   if (!isObserveConfigured()) {
     throw new ObserveError('OBSERVE_NOT_CONFIGURED', 'GEMINI_API_KEY 미설정', 503);
   }
+  if (input.durationSec > MAX_OBSERVE_SEC) {
+    throw new ObserveError('OBSERVE_TOO_LONG', `${input.durationSec}s > ${MAX_OBSERVE_SEC}s`, 422);
+  }
   const model = configuredObserveModel();
   // 썸네일을 못 받아도 관찰은 한다 — 단 요청 본문에 "미첨부"가 적혀 모델이 unknown으로 답할 근거가 남는다.
   const thumbnail = await fetchThumb(input.videoId).catch(() => null);
@@ -325,6 +359,11 @@ export async function observeVideo(
     throw classifyObserveError(error);
   }
   const elapsedMs = Date.now() - t0;
+
+  // 스키마보다 먼저: 영상을 읽지 않은 응답은 내용이 무엇이든 관찰이 아니다.
+  if (videoTokensOf(response.usage) === 0) {
+    throw new ObserveError('OBSERVE_NO_VIDEO_EVIDENCE', `usage에 video/image 토큰 없음: ${JSON.stringify(response.usage ?? {})}`, 502);
+  }
 
   const payload = parseObservationText(outputTextOf(response));
   const usage = {
